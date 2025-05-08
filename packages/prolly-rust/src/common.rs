@@ -23,6 +23,15 @@ pub struct TreeConfig {
     pub min_fanout: usize,
     // Future: Add CDC parameters like min_chunk_size, avg_chunk_size, max_chunk_size
     // Future: Add max_inline_value_size before chunking a value separately
+
+    /// Minimum chunk size for CDC.
+    pub cdc_min_size: usize,
+    /// Average chunk size target for CDC.
+    pub cdc_avg_size: usize,
+    /// Maximum chunk size for CDC.
+    pub cdc_max_size: usize,
+    /// Values larger than this will be chunked using CDC. Smaller values are inlined.
+    pub max_inline_value_size: usize,
 }
 
 impl Default for TreeConfig {
@@ -35,6 +44,15 @@ impl Default for TreeConfig {
         TreeConfig {
             target_fanout,
             min_fanout: target_fanout / 2,
+            // Default CDC parameters (adjust as needed for typical data)
+            // Using values often seen in examples, target ~16KiB average.
+            cdc_min_size: 4 * 1024,     // 4 KiB
+            cdc_avg_size: 16 * 1024,    // 16 KiB
+            cdc_max_size: 64 * 1024,    // 64 KiB
+            // Default threshold for inlining (e.g., don't chunk small values)
+            // Might set this lower than cdc_min_size, or equal to avg, depends on strategy.
+            // Let's start relatively low. Consider average cost of storing hash vs inline data.
+            max_inline_value_size: 1024, // 1 KiB threshold for chunking
         }
     }
 }

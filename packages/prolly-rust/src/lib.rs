@@ -198,15 +198,24 @@ impl WasmProllyTree {
     /// Construct an empty in-memory tree with custom fanout configuration (for testing).
     #[wasm_bindgen(js_name = newWithConfig)]
     pub fn new_with_config(target_fanout: usize, min_fanout: usize) -> Result<WasmProllyTree, JsValue> {
-        // console_error_panic_hook::set_once(); // Optional: Call hook here if needed
-        let config = TreeConfig { target_fanout, min_fanout };
+        let default_config = TreeConfig::default(); // Get defaults for CDC params
+        let config = TreeConfig { 
+            target_fanout, 
+            min_fanout,
+            // Use defaults for the rest
+            cdc_min_size: default_config.cdc_min_size,
+            cdc_avg_size: default_config.cdc_avg_size,
+            cdc_max_size: default_config.cdc_max_size,
+            max_inline_value_size: default_config.max_inline_value_size,
+        };
         // Basic validation matching the panic in ProllyTree::new
         if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 || config.target_fanout == 0 {
-                return Err(JsValue::from_str("Invalid TreeConfig: fanout values are not configured properly."));
+             return Err(JsValue::from_str("Invalid TreeConfig: fanout values are not configured properly."));
         }
         let store = Arc::new(InMemoryStore::new());
-        let tree = ProllyTree::new(store, config);
-        Ok(Self { // Return Ok wrapping Self
+        // Use the fully initialized config
+        let tree = ProllyTree::new(store, config); 
+        Ok(Self { 
             inner: Arc::new(tokio::sync::Mutex::new(tree)),
         })
     }

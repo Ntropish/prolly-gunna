@@ -4,12 +4,18 @@ use std::sync::Arc;
 use std::pin::Pin; 
 use std::future::Future; 
 
+use log::warn; 
+
+use async_trait::async_trait;
+
+use fastcdc::v2020::FastCDC;
+
+
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
 use crate::store::ChunkStore;
-use crate::chunk::chunk_node;
-
+use crate::chunk::{chunk_node, hash_bytes};
 
 // --- Struct definitions (ProllyTree, ProcessedNodeUpdate) remain the same ---
 /// The main Prolly Tree structure.
@@ -107,7 +113,8 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok((boundary_key?, hash))
     }
     
-    pub async fn get(&self, key: &Key) -> Result<Option<Value>> { // Public
+    /// Gets a value by key. Handles reconstructing chunked values.
+    pub async fn get(&self, key: &Key) -> Result<Option<Value>> { // Public - No change to signature
         let current_root_hash = match self.root_hash {
             Some(h) => h,
             None => return Ok(None),
@@ -115,6 +122,7 @@ impl<S: ChunkStore> ProllyTree<S> {
         self.recursive_get_impl(current_root_hash, key.clone()).await
     }
     
+    // Updated recursive_get_impl to handle new ValueRepr variants
     fn recursive_get_impl<'s>(
         &'s self, 
         node_hash: Hash,
@@ -127,21 +135,41 @@ impl<S: ChunkStore> ProllyTree<S> {
                     match entries.binary_search_by(|e| e.key.as_slice().cmp(key.as_slice())) {
                         Ok(index) => {
                             let entry = &entries[index];
+                            // --- UPDATED VALUE HANDLING ---
                             match &entry.value {
                                 ValueRepr::Inline(val) => Ok(Some(val.clone())),
                                 ValueRepr::Chunked(data_hash) => {
+                                    // Fetch the single chunk value from the store
                                     let value_bytes = self.store.get(data_hash).await?
                                         .ok_or_else(|| ProllyError::ChunkNotFound(*data_hash))?;
                                     Ok(Some(value_bytes))
                                 }
+                                ValueRepr::ChunkedSequence { chunk_hashes, total_size } => {
+                                    // Reconstruct value from multiple chunks
+                                    let mut reconstructed_value = Vec::with_capacity(*total_size as usize);
+                                    for chunk_hash in chunk_hashes {
+                                        let chunk_bytes = self.store.get(chunk_hash).await?
+                                            .ok_or_else(|| ProllyError::ChunkNotFound(*chunk_hash))?;
+                                        reconstructed_value.extend_from_slice(&chunk_bytes);
+                                    }
+                                    // Optional: Verify total size matches?
+                                    if reconstructed_value.len() as u64 != *total_size {
+                                         warn!("Reconstructed value size mismatch for key {:?}. Expected {}, got {}.", key, total_size, reconstructed_value.len());
+                                         // Decide whether to return error or potentially truncated/corrupt data
+                                         // For now, return what we got. Could return error:
+                                         // return Err(ProllyError::InternalError("Chunked sequence size mismatch".to_string()));
+                                    }
+                                    Ok(Some(reconstructed_value))
+                                }
                             }
+                            // --- END UPDATED VALUE HANDLING ---
                         }
                         Err(_) => Ok(None),
                     }
                 }
                 Node::Internal { children, .. } => {
+                    // ... (Internal node descent logic remains the same) ...
                     if children.is_empty() { return Ok(None); }
-
                     let mut child_idx_to_search = children.len() -1; 
                     for (idx, child_entry) in children.iter().enumerate() {
                         if key.as_slice() <= &child_entry.boundary_key { 
@@ -154,6 +182,49 @@ impl<S: ChunkStore> ProllyTree<S> {
             }
         })
     }
+
+     /// Prepares ValueRepr based on value size and TreeConfig.
+    /// Chunks large values using FastCDC.
+    async fn prepare_value_repr(&self, value: Value) -> Result<ValueRepr> {
+        if value.len() <= self.config.max_inline_value_size {
+            return Ok(ValueRepr::Inline(value));
+        }
+
+        // Value is large, apply CDC
+        // Use FastCDC::new directly with parameters from config
+        // Note: fastcdc expects u32 for sizes, ensure conversion if TreeConfig uses usize
+        let chunker = FastCDC::new(
+            &value,
+            self.config.cdc_min_size as u32, // Cast usize to u32
+            self.config.cdc_avg_size as u32, // Cast usize to u32
+            self.config.cdc_max_size as u32  // Cast usize to u32
+        );
+        
+        let mut chunk_hashes = Vec::new();
+        let total_size = value.len() as u64;
+
+        for entry in chunker {
+            let chunk_data = &value[entry.offset..entry.offset + entry.length];
+            let chunk_hash = hash_bytes(chunk_data);
+            self.store.put(chunk_data.to_vec()).await?;
+            chunk_hashes.push(chunk_hash);
+        }
+
+        match chunk_hashes.len() {
+            0 => {
+                warn!("CDC produced 0 chunks for value of size {}. Storing inline.", value.len());
+                Ok(ValueRepr::Inline(value))
+            }
+            1 => {
+                Ok(ValueRepr::Chunked(chunk_hashes[0]))
+            }
+            _ => {
+                Ok(ValueRepr::ChunkedSequence { chunk_hashes, total_size })
+            }
+        }
+    }
+
+    // Insert
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Result<()> { // Public
         let value_repr = self.prepare_value_repr(value).await?;
@@ -198,9 +269,6 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok(())
     }
 
-    async fn prepare_value_repr(&self, value: Value) -> Result<ValueRepr> { // Private
-        Ok(ValueRepr::Inline(value))
-    }
     
     fn recursive_insert_impl<'s>( // Private
         &'s mut self,

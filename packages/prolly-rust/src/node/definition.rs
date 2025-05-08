@@ -4,13 +4,20 @@ use serde::{Serialize, Deserialize};
 use crate::common::{Hash, Key, Value, TreeConfig}; // TreeConfig for FANOUT access
 use crate::error::{Result, ProllyError};
 
-/// Represents a value that can either be stored directly (inline)
-/// or as a hash reference to another chunk (e.g., for large values or CDC).
+/// Represents a value stored in a leaf node.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ValueRepr {
+    /// Value is small enough to be stored directly within the node.
     Inline(Value),
-    Chunked(Hash), // Hash of a data chunk
-    // Future: SmallValueOptimized(Vec<u8>) for values that are too small to benefit from full Value but too large for some inline limits
+    /// Value was large and resulted in exactly one data chunk. Stores the hash of that chunk.
+    Chunked(Hash),
+    /// Value was large and split into multiple data chunks by CDC. Stores the sequence of chunk hashes.
+    ChunkedSequence {
+        /// Hashes of the data chunks, in order.
+        chunk_hashes: Vec<Hash>,
+        /// The total original size of the data represented by the chunks. (Useful for pre-allocation on read)
+        total_size: u64, 
+    },
 }
 
 /// An entry in a leaf node, mapping a key to a value representation.
