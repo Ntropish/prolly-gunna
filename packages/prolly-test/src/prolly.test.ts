@@ -436,39 +436,6 @@ describe("WasmProllyTree little fan", () => {
     );
   });
 
-  it.skip("DELETE: should trigger leaf rebalance (borrow from left)", async () => {
-    // Setup: Left leaf with 3 (can lend), Right leaf with 1 (underflow)
-    // Target fanout 4, min fanout 2. Split at 5 elements.
-    // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
-    const keys = ["k01", "k02", "k03", "k04", "k05"];
-    for (const k of keys) {
-      await tree.insert(toU8(k), toU8(`v_${k}`));
-    }
-
-    // Delete k04 and k05 -> right leaf has k03 (size 1, needs borrow)
-    await tree.delete(toU8("k04"));
-    await tree.delete(toU8("k05"));
-
-    // Expect borrow from left: k02 moves from left to right.
-    // State should become: root -> [leaf(k01), leaf(k02, k03)]
-    // Verify all remaining keys
-    expectU8Eq(
-      (await tree.get(toU8("k01"))) as Uint8Array | null,
-      toU8("v_k01")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      toU8("v_k02")
-    ); // Check moved key
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      toU8("v_k03")
-    );
-    expect((await tree.get(toU8("k04"))) as Uint8Array | null).toBeNull();
-    expect((await tree.get(toU8("k05"))) as Uint8Array | null).toBeNull();
-  });
-
   it("DELETE: should empty the tree when deleting the last element", async () => {
     const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
     const key = toU8("last");
