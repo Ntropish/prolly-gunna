@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept"
   },
   "keywords": [],
   "author": "",

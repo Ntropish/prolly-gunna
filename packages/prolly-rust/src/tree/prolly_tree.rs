@@ -503,33 +503,26 @@ impl<S: ChunkStore> ProllyTree<S> {
        // Perform the borrow based on node type
        match (&mut left_node, &mut underflow_node) {
            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: underflow_entries, .. }) => {
-               // Move last entry from left to start of underflow
-               if let Some(borrowed_entry) = left_entries.pop() {
-                   underflow_entries.insert(0, borrowed_entry);
-               } else {
-                   return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string()));
-               }
+               if let Some(borrowed_entry) = left_entries.pop() { 
+                   underflow_entries.insert(0, borrowed_entry); 
+               } else { return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string())); }
            }
            (Node::Internal { children: left_children, .. }, Node::Internal { children: underflow_children, .. }) => {
-                // Move last child pointer from left to start of underflow
-                if let Some(borrowed_child_entry) = left_children.pop() {
+                if let Some(borrowed_child_entry) = left_children.pop() { 
                    underflow_children.insert(0, borrowed_child_entry);
-                } else {
-                   return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string()));
-                }
+                } else { return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string())); }
            }
            _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
        }
 
-       // Re-store the modified nodes and get their new state
        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
 
        // Update the parent's entries
-       children[left_idx].boundary_key = new_left_boundary;
+       children[left_idx].boundary_key = new_left_boundary; // Update left boundary
        children[left_idx].child_hash = new_left_hash;
-       children[underflow_idx].boundary_key = new_underflow_boundary; // Boundary key of underflow node doesn't change conceptually here, just its content hash
-       children[underflow_idx].child_hash = new_underflow_hash;
+       children[underflow_idx].boundary_key = new_underflow_boundary; // REINSTATE boundary update
+       children[underflow_idx].child_hash = new_underflow_hash; 
        
        Ok(())
    }
@@ -549,33 +542,26 @@ impl<S: ChunkStore> ProllyTree<S> {
         // Perform the borrow based on node type
         match (&mut underflow_node, &mut right_node) {
             (Node::Leaf { entries: underflow_entries, .. }, Node::Leaf { entries: right_entries, .. }) => {
-               if right_entries.is_empty() {
-                    return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string()));
-               }
-               // Move first entry from right to end of underflow
+               if right_entries.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string())); }
                let borrowed_entry = right_entries.remove(0);
                underflow_entries.push(borrowed_entry);
             }
             (Node::Internal { children: underflow_children, .. }, Node::Internal { children: right_children, .. }) => {
-                if right_children.is_empty() {
-                    return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string()));
-                }
-                // Move first child pointer from right to end of underflow
+                if right_children.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string())); }
                 let borrowed_child_entry = right_children.remove(0);
                 underflow_children.push(borrowed_child_entry);
             }
              _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
         }
 
-        // Re-store the modified nodes and get their new state
         let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
         let (new_right_boundary, new_right_hash) = self.store_node_and_get_key_hash_pair(&right_node).await?;
 
         // Update the parent's entries
-        children[underflow_idx].boundary_key = new_underflow_boundary; // This node's boundary key *did* change
+        children[underflow_idx].boundary_key = new_underflow_boundary; // Update underflow boundary
         children[underflow_idx].child_hash = new_underflow_hash;
-        children[right_idx].boundary_key = new_right_boundary;
-        children[right_idx].child_hash = new_right_hash;
+        children[right_idx].boundary_key = new_right_boundary; // REINSTATE boundary update
+        children[right_idx].child_hash = new_right_hash; 
 
         Ok(())
     }
