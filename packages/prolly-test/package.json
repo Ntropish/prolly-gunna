@@ -1,0 +1,18 @@
+{
+  "name": "prolly-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "prolly-wasm": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.3"
+  }
+}

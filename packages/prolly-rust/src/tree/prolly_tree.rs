@@ -1,6 +1,8 @@
 // prolly-rust/src/tree/prolly_tree.rs
 
 use std::sync::Arc;
+use std::pin::Pin; // Required for Box::pin
+use std::future::Future; // Required for type hinting the boxed future
 
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
@@ -21,8 +23,8 @@ pub struct ProllyTree<S: ChunkStore> {
 #[derive(Debug)]
 struct ProcessedNodeUpdate {
     new_hash: Hash,
-    new_boundary_key: Key, // Max key of the node represented by new_hash
-    split_info: Option<(Key, Hash)>, // (boundary_key_of_new_sibling, new_sibling_hash)
+    new_boundary_key: Key,
+    split_info: Option<(Key, Hash)>,
 }
 
 
@@ -45,7 +47,7 @@ impl<S: ChunkStore> ProllyTree<S> {
     ) -> Result<Self> {
         match store.get(&root_hash).await? {
             Some(bytes) => {
-                Node::decode(&bytes)?; 
+                Node::decode(&bytes)?;
                 Ok(ProllyTree {
                     root_hash: Some(root_hash),
                     store,
@@ -79,55 +81,67 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok((boundary_key, hash))
     }
     
-    async fn get(&self, key: &Key) -> Result<Option<Value>> {
+    pub async fn get(&self, key: &Key) -> Result<Option<Value>> {
         let current_root_hash = match self.root_hash {
             Some(h) => h,
             None => return Ok(None),
         };
-        self.recursive_get(current_root_hash, key).await
+        // For the public API, the first call isn't "recursive" in the sense of needing boxing itself,
+        // it calls the helper that is.
+        self.recursive_get_impl(current_root_hash, key.clone()).await // Pass owned key for lifetime 'static
     }
     
-    async fn recursive_get(&self, node_hash: Hash, key: &Key) -> Result<Option<Value>> {
-        let node = self.load_node(&node_hash).await?;
-        match node {
-            Node::Leaf { entries, .. } => {
-                match entries.binary_search_by_key(key, |e| &e.key) {
-                    Ok(index) => {
-                        let entry = &entries[index];
-                        match &entry.value {
-                            ValueRepr::Inline(val) => Ok(Some(val.clone())),
-                            ValueRepr::Chunked(data_hash) => {
-                                let value_bytes = self.store.get(data_hash).await?
-                                    .ok_or_else(|| ProllyError::ChunkNotFound(*data_hash))?;
-                                Ok(Some(value_bytes))
+    // Renamed to _impl and changed signature for boxing
+    // The 's lifetime here means the returned Future is tied to &self.
+    // For Box::pin to create a 'static future, we often need to pass owned data or use Arcs.
+    // Let's adjust to take owned Key or ensure data is 'static for the boxed future.
+    fn recursive_get_impl<'s>(
+        &'s self, // Keep &self as methods operate on the tree's store/config
+        node_hash: Hash,
+        key: Key, // Take owned Key to allow moving into the Box::pin future
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Value>>> + Send + 's>> {
+        Box::pin(async move { // async move block captures variables by move
+            let node = self.load_node(&node_hash).await?;
+            match node {
+                Node::Leaf { entries, .. } => {
+                    match entries.binary_search_by(|e| e.key.as_slice().cmp(key.as_slice())) {
+                        Ok(index) => {
+                            let entry = &entries[index];
+                            match &entry.value {
+                                ValueRepr::Inline(val) => Ok(Some(val.clone())),
+                                ValueRepr::Chunked(data_hash) => {
+                                    let value_bytes = self.store.get(data_hash).await?
+                                        .ok_or_else(|| ProllyError::ChunkNotFound(*data_hash))?;
+                                    Ok(Some(value_bytes))
+                                }
                             }
                         }
+                        Err(_) => Ok(None),
                     }
-                    Err(_) => Ok(None),
                 }
-            }
-            Node::Internal { children, .. } => {
-                if children.is_empty() { return Ok(None); }
+                Node::Internal { children, .. } => {
+                    if children.is_empty() { return Ok(None); }
 
-                let mut child_idx_to_search = children.len() -1; 
-                for (idx, child_entry) in children.iter().enumerate() {
-                    if key <= &child_entry.boundary_key {
-                        child_idx_to_search = idx;
-                        break;
+                    let mut child_idx_to_search = children.len() -1; 
+                    for (idx, child_entry) in children.iter().enumerate() {
+                        if key.as_slice() <= &child_entry.boundary_key { // Compare key.as_slice() with &Vec<u8>
+                            child_idx_to_search = idx;
+                            break;
+                        }
                     }
+                    // Recursive call is now boxed
+                    self.recursive_get_impl(children[child_idx_to_search].child_hash, key).await
                 }
-                self.recursive_get(children[child_idx_to_search].child_hash, key).await
             }
-        }
+        })
     }
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Result<()> {
-        let value_repr = self.prepare_value_repr(value).await?; // Handles potential value chunking
+        let value_repr = self.prepare_value_repr(value).await?;
 
         let current_root_hash = match self.root_hash {
             Some(h) => h,
             None => {
-                // Tree is empty, create a new root leaf node.
                 let new_leaf_node = Node::Leaf {
                     level: 0,
                     entries: vec![LeafEntry { key, value: value_repr }],
@@ -138,22 +152,22 @@ impl<S: ChunkStore> ProllyTree<S> {
             }
         };
         
-        let root_node = self.load_node(&current_root_hash).await?; // Need root's level
-        let update_result = self.recursive_insert(current_root_hash, key, value_repr, root_node.level()).await?;
+        let root_node = self.load_node(&current_root_hash).await?;
+        // Pass owned key and value_repr for boxing
+        let update_result = self.recursive_insert_impl(current_root_hash, key, value_repr, root_node.level()).await?;
 
-        self.root_hash = Some(update_result.new_hash); // Update root hash to the (potentially modified) original root
+        self.root_hash = Some(update_result.new_hash); 
 
         if let Some((split_boundary_key, new_sibling_hash)) = update_result.split_info {
-            // Root node split. Create a new root internal node.
-            let old_root_as_left_child_boundary = update_result.new_boundary_key; // Max key of the old root (now left child)
+            let old_root_as_left_child_boundary = update_result.new_boundary_key; 
             
             let new_root_children = vec![
                 InternalEntry {
                     boundary_key: old_root_as_left_child_boundary,
-                    child_hash: self.root_hash.unwrap(), // This is update_result.new_hash
+                    child_hash: self.root_hash.unwrap(), 
                 },
                 InternalEntry {
-                    boundary_key: split_boundary_key, // This is max key of the new_sibling
+                    boundary_key: split_boundary_key, 
                     child_hash: new_sibling_hash,
                 },
             ];
@@ -166,139 +180,107 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok(())
     }
 
-    /// Prepares ValueRepr, chunking large values if necessary.
     async fn prepare_value_repr(&self, value: Value) -> Result<ValueRepr> {
-        // Placeholder: Implement actual CDC logic based on TreeConfig.max_inline_value_size
-        // For now, all values are inline.
-        // if value.len() > self.config.max_inline_value_size {
-        //     let (data_hash, data_bytes) = chunk_value_bytes(&value); // Needs a chunk_value_bytes function
-        //     self.store.put(data_bytes).await?;
-        //     Ok(ValueRepr::Chunked(data_hash))
-        // } else {
         Ok(ValueRepr::Inline(value))
-        // }
     }
     
-    /// Recursive helper for insertion.
-    /// node_hash: The hash of the current node to process.
-    /// key, value: The key/value to insert.
-    /// level: The level of the current_node.
-    /// Returns ProcessedNodeUpdate:
-    ///   - new_hash: The hash of the (potentially modified) current_node.
-    ///   - new_boundary_key: The max key of the (potentially modified) current_node.
-    ///   - split_info: Some((boundary_key_of_new_sibling, new_sibling_hash)) if current_node split.
-    async fn recursive_insert(
-        &mut self,
+    // Changed to non-async, returns a Pinned Future. Takes owned Key & ValueRepr.
+    // The 's lifetime here means the returned Future is tied to &mut self.
+    fn recursive_insert_impl<'s>(
+        &'s mut self,
         node_hash: Hash,
-        key: Key,
-        value: ValueRepr,
+        key: Key, // Owned
+        value: ValueRepr, // Owned
         level: u8,
-    ) -> Result<ProcessedNodeUpdate> {
-        let mut current_node_obj = self.load_node(&node_hash).await?;
+    ) -> Pin<Box<dyn Future<Output = Result<ProcessedNodeUpdate>> + Send + 's>> {
+        Box::pin(async move { // async move block
+            let mut current_node_obj = self.load_node(&node_hash).await?;
 
-        match &mut current_node_obj {
-            Node::Leaf { entries, .. } => {
-                match entries.binary_search_by_key(&&key, |e| &e.key) {
-                    Ok(index) => entries[index].value = value,
-                    Err(index) => entries.insert(index, LeafEntry { key, value }),
-                }
-
-                if entries.len() > self.config.target_fanout {
-                    // Split the leaf node
-                    let mid_idx = entries.len() / 2;
-                    let mut right_sibling_entries = entries.split_off(mid_idx); // `entries` is now left part
-
-                    let right_sibling_boundary_key = right_sibling_entries.last().ok_or_else(|| ProllyError::InternalError("Split leaf created empty right sibling".to_string()))?.key.clone();
-                    let right_sibling_node = Node::Leaf { level: 0, entries: right_sibling_entries };
-                    let (_r_boundary, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
-                    
-                    // `current_node_obj` (now the left part) needs to be re-stored
-                    let (left_boundary_key, left_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-
-                    Ok(ProcessedNodeUpdate {
-                        new_hash: left_hash,
-                        new_boundary_key: left_boundary_key,
-                        split_info: Some((right_sibling_boundary_key, right_sibling_hash)),
-                    })
-                } else {
-                    // No split, just store the modified leaf node
-                    let (new_boundary_key, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                    Ok(ProcessedNodeUpdate { new_hash, new_boundary_key, split_info: None })
-                }
-            }
-            Node::Internal { children, .. } => {
-                let mut child_idx_to_descend = children.len() -1;
-                for (idx, child_entry) in children.iter().enumerate() {
-                    if &key <= &child_entry.boundary_key {
-                        child_idx_to_descend = idx;
-                        break;
+            match &mut current_node_obj {
+                Node::Leaf { entries, .. } => {
+                    match entries.binary_search_by_key(&&key, |e| &e.key) { // Pass &key for owned key
+                        Ok(index) => entries[index].value = value,
+                        Err(index) => entries.insert(index, LeafEntry { key, value }),
                     }
-                }
-                
-                let child_to_descend_hash = children[child_idx_to_descend].child_hash;
-                let child_level = level - 1; // Sanity check: child_level should match loaded child's level.
 
-                let child_update_result = self.recursive_insert(child_to_descend_hash, key, value, child_level).await?;
+                    if entries.len() > self.config.target_fanout {
+                        let mid_idx = entries.len() / 2;
+                        let right_sibling_entries = entries.split_off(mid_idx); 
 
-                // Update the child entry that was descended into
-                children[child_idx_to_descend].child_hash = child_update_result.new_hash;
-                children[child_idx_to_descend].boundary_key = child_update_result.new_boundary_key;
-
-                let mut split_to_propagate = None;
-
-                if let Some((boundary_from_child_split, new_child_sibling_hash)) = child_update_result.split_info {
-                    // Child split. Insert new entry for the new sibling into this internal node.
-                    let new_internal_entry = InternalEntry {
-                        boundary_key: boundary_from_child_split,
-                        child_hash: new_child_sibling_hash,
-                    };
-                    
-                    let pos_to_insert_sibling = children.binary_search_by_key(&&new_internal_entry.boundary_key, |e| &e.boundary_key).unwrap_or_else(|e| e);
-                    children.insert(pos_to_insert_sibling, new_internal_entry);
-
-                    if children.len() > self.config.target_fanout {
-                        // Split this internal node
-                        let mid_idx = children.len() / 2;
-                        let mut right_sibling_children = children.split_off(mid_idx);
-
-                        let right_sibling_boundary_key = right_sibling_children.last().ok_or_else(|| ProllyError::InternalError("Split internal created empty right sibling".to_string()))?.boundary_key.clone();
-                        let right_sibling_node = Node::Internal { level, children: right_sibling_children }; // Same level as current_node_obj
+                        let right_sibling_boundary_key = right_sibling_entries.last().ok_or_else(|| ProllyError::InternalError("Split leaf created empty right sibling".to_string()))?.key.clone();
+                        let right_sibling_node = Node::Leaf { level: 0, entries: right_sibling_entries };
                         let (_r_boundary, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
                         
-                        split_to_propagate = Some((right_sibling_boundary_key, right_sibling_hash));
+                        let (left_boundary_key, left_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+
+                        Ok(ProcessedNodeUpdate {
+                            new_hash: left_hash,
+                            new_boundary_key: left_boundary_key,
+                            split_info: Some((right_sibling_boundary_key, right_sibling_hash)),
+                        })
+                    } else {
+                        let (new_boundary_key, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+                        Ok(ProcessedNodeUpdate { new_hash, new_boundary_key, split_info: None })
                     }
                 }
-                
-                // Store the current internal node (it's modified either by child update or by adding a new sibling)
-                let (current_node_new_boundary, current_node_new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+                Node::Internal { children, .. } => {
+                    let mut child_idx_to_descend = children.len() -1;
+                    for (idx, child_entry) in children.iter().enumerate() {
+                        if key.as_slice() <= &child_entry.boundary_key { // Compare key.as_slice()
+                            child_idx_to_descend = idx;
+                            break;
+                        }
+                    }
+                    
+                    let child_to_descend_hash = children[child_idx_to_descend].child_hash;
+                    let child_level = level - 1; 
 
-                Ok(ProcessedNodeUpdate {
-                    new_hash: current_node_new_hash,
-                    new_boundary_key: current_node_new_boundary,
-                    split_info: split_to_propagate,
-                })
+                    // Recursive call is now boxed
+                    let child_update_result = self.recursive_insert_impl(child_to_descend_hash, key, value, child_level).await?;
+
+                    children[child_idx_to_descend].child_hash = child_update_result.new_hash;
+                    children[child_idx_to_descend].boundary_key = child_update_result.new_boundary_key;
+
+                    let mut split_to_propagate = None;
+
+                    if let Some((boundary_from_child_split, new_child_sibling_hash)) = child_update_result.split_info {
+                        let new_internal_entry = InternalEntry {
+                            boundary_key: boundary_from_child_split,
+                            child_hash: new_child_sibling_hash,
+                        };
+                        
+                        let pos_to_insert_sibling = children.binary_search_by_key(&&new_internal_entry.boundary_key, |e| &e.boundary_key).unwrap_or_else(|e| e);
+                        children.insert(pos_to_insert_sibling, new_internal_entry);
+
+                        if children.len() > self.config.target_fanout {
+                            let mid_idx = children.len() / 2;
+                            let right_sibling_children = children.split_off(mid_idx);
+
+                            let right_sibling_boundary_key = right_sibling_children.last().ok_or_else(|| ProllyError::InternalError("Split internal created empty right sibling".to_string()))?.boundary_key.clone();
+                            let right_sibling_node = Node::Internal { level, children: right_sibling_children }; 
+                            let (_r_boundary, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
+                            
+                            split_to_propagate = Some((right_sibling_boundary_key, right_sibling_hash));
+                        }
+                    }
+                    
+                    let (current_node_new_boundary, current_node_new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+
+                    Ok(ProcessedNodeUpdate {
+                        new_hash: current_node_new_hash,
+                        new_boundary_key: current_node_new_boundary,
+                        split_info: split_to_propagate,
+                    })
+                }
             }
-        }
+        })
     }
     
     pub async fn delete(&mut self, _key: &Key) -> Result<bool> {
-        // This will involve:
-        // 1. recursive_delete(self.root_hash, key, level)
-        // 2. recursive_delete returns info about whether a merge/rebalance happened,
-        //    and the new state (hash, boundary) of the processed node.
-        // 3. If a child becomes underflow:
-        //    a. Try to borrow from a sibling.
-        //    b. If borrowing fails, merge with a sibling.
-        //    c. Merging removes an entry from the parent, which might cause parent to underflow.
-        // 4. If root node's children merge into a single node, that node becomes the new root,
-        //    and tree height decreases.
         unimplemented!("delete operation not yet fully implemented");
     }
 
     pub async fn commit(&mut self) -> Result<Option<Hash>> {
-        // In this model where insert directly updates the store and root_hash,
-        // commit is essentially a no-op or could be used to signify a "save point".
-        // If we introduce batching/caching of writes, commit would flush them.
         Ok(self.root_hash)
     }
 }
