@@ -3,7 +3,6 @@ use crate::{node::{Node, LeafEntry}, store::ChunkStore, store::memory::InMemoryS
 use crate::chunk::{chunk_node, hash_bytes};
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::any::Any; // This import is needed for downcast_ref on &dyn Any
 
 pub type Hash = [u8; 32];
 
@@ -70,7 +69,7 @@ impl<S: ChunkStore + 'static> Tree<S> {
 
     /// Helper for wasm tests – export all in‑RAM chunks as JS `Map`.
     /// This method is specific to when S is InMemoryStore.
-    #[cfg(target_arch="wasm32")]
+    #[cfg(all(test, target_arch="wasm32"))] // Only compile for wasm32 tests
     pub fn export_chunks_js(&self) -> js_sys::Map {
         use js_sys::{Uint8Array, Map}; // Uint8Array is used here
         // InMemoryStore is already imported at the top of the file

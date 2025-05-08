@@ -4,8 +4,6 @@ use wasm_bindgen::{JsCast, JsValue};
 use js_sys::{Map, Uint8Array, Array as JsArray};
 use crate::chunk::hash_bytes;
 use std::any::Any;
-// Removed: use std::cell::RefCell;
-// Removed: use std::rc::Rc;
 
 pub type Hash = [u8; 32];
 
@@ -13,7 +11,6 @@ pub type Hash = [u8; 32];
 pub trait ChunkStore: Any {
     fn get(&self, h: &Hash) -> Option<Vec<u8>>;
     fn put(&mut self, bytes: &[u8]) -> Hash;
-    fn as_any_mut(&mut self) -> &mut dyn Any; // To get a mutable Any reference
     fn as_any(&self) -> &dyn Any;       // To get an immutable Any reference
 }
 
@@ -32,7 +29,6 @@ pub mod memory {
             self.0.insert(h, bytes.to_vec());
             h
         }
-        fn as_any_mut(&mut self) -> &mut dyn Any { self }
         fn as_any(&self) -> &dyn Any { self }
     }
 

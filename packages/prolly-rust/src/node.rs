@@ -1,8 +1,6 @@
 //! Binary representation helpers.
 use serde::{Serialize, Deserialize};
 
-pub const FANOUT: usize = 32; // ignored for now
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LeafEntry { pub key: Vec<u8>, pub value: Vec<u8>, }
 
