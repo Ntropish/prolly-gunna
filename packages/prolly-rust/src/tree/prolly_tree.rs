@@ -444,24 +444,23 @@ impl<S: ChunkStore> ProllyTree<S> {
         })
     }
 
-    /// Handles underflow at a given child index in an internal node's children list.
+        /// Handles underflow at a given child index in an internal node's children list.
     /// Tries to borrow from siblings first, then merges if necessary.
-    /// Modifies the `children` Vec in place.
+    /// Modifies the `children` Vec in place by calling rebalance or merge helpers.
     async fn handle_underflow(
         &mut self,
-        children: &mut Vec<InternalEntry>, // Children of the parent node
+        children: &mut Vec<InternalEntry>, // Parent's children list
         underflow_child_idx: usize,        // Index of the child that is underflow
-    ) -> Result<()> {
+    ) -> Result<()> { 
         
         // Try borrowing from left sibling
         if underflow_child_idx > 0 {
             let left_sibling_idx = underflow_child_idx - 1;
-            // Check if left sibling has enough entries to lend one
             let left_sibling_node = self.load_node(&children[left_sibling_idx].child_hash).await?;
             if left_sibling_node.num_entries() > self.config.min_fanout {
-                 // Perform borrow from left (rebalance)
+                 // This function modifies nodes and updates parent `children` entries
                  self.rebalance_borrow_from_left(children, left_sibling_idx, underflow_child_idx).await?;
-                 return Ok(()); // Rebalanced successfully
+                 return Ok(()); 
             }
         }
 
@@ -470,99 +469,125 @@ impl<S: ChunkStore> ProllyTree<S> {
              let right_sibling_idx = underflow_child_idx + 1;
              let right_sibling_node = self.load_node(&children[right_sibling_idx].child_hash).await?;
              if right_sibling_node.num_entries() > self.config.min_fanout {
-                  // Perform borrow from right (rebalance)
+                  // This function modifies nodes and updates parent `children` entries
                   self.rebalance_borrow_from_right(children, underflow_child_idx, right_sibling_idx).await?;
-                  return Ok(()); // Rebalanced successfully
+                  return Ok(()); 
              }
         }
 
         // Cannot borrow, must merge. Prefer merging with left sibling if possible.
         if underflow_child_idx > 0 {
-            // Merge with left sibling
-            self.merge_siblings(children, underflow_child_idx - 1, underflow_child_idx).await?;
+            // Merge underflow_idx into left_sibling_idx. Removes underflow_idx entry from children.
+            let left_idx = underflow_child_idx - 1;
+            let right_idx = underflow_child_idx; // The node *to be merged* is the one at underflow_idx
+            self.merge_into_left_sibling(children, left_idx, right_idx).await?;
         } else {
-            // Must merge with right sibling (underflow_child_idx must be 0 here)
-            self.merge_siblings(children, underflow_child_idx, underflow_child_idx + 1).await?;
+            // Must merge with right sibling (underflow_child_idx must be 0).
+            // Merge right_sibling_idx into underflow_child_idx. Removes right_sibling_idx entry from children.
+            let left_idx = underflow_child_idx;
+            let right_idx = underflow_child_idx + 1;
+            self.merge_into_left_sibling(children, left_idx, right_idx).await?;
         }
 
         Ok(())
     }
 
-    /// Helper to rebalance by borrowing an entry from the left sibling.
-    /// Modifies child nodes and updates the parent's corresponding entries in `children`.
+    // --- rebalance_borrow_from_left / right remain the same as the PREVIOUS version (with reinstated boundary updates) ---
     async fn rebalance_borrow_from_left(
-        &mut self,
-        children: &mut Vec<InternalEntry>, // Parent's children list
-        left_idx: usize,
-        underflow_idx: usize
-   ) -> Result<()> {
-       // Load the nodes involved
-       let mut left_node = self.load_node(&children[left_idx].child_hash).await?;
-       let mut underflow_node = self.load_node(&children[underflow_idx].child_hash).await?;
-
-       // Perform the borrow based on node type
-       match (&mut left_node, &mut underflow_node) {
-           (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: underflow_entries, .. }) => {
-               if let Some(borrowed_entry) = left_entries.pop() { 
-                   underflow_entries.insert(0, borrowed_entry); 
-               } else { return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string())); }
-           }
-           (Node::Internal { children: left_children, .. }, Node::Internal { children: underflow_children, .. }) => {
-                if let Some(borrowed_child_entry) = left_children.pop() { 
-                   underflow_children.insert(0, borrowed_child_entry);
-                } else { return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string())); }
-           }
-           _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
-       }
-
-       let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
-       let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
-
-       // Update the parent's entries
-       children[left_idx].boundary_key = new_left_boundary; // Update left boundary
-       children[left_idx].child_hash = new_left_hash;
-       children[underflow_idx].boundary_key = new_underflow_boundary; // REINSTATE boundary update
-       children[underflow_idx].child_hash = new_underflow_hash; 
-       
-       Ok(())
-   }
-
-    /// Helper to rebalance by borrowing an entry from the right sibling.
-    /// Modifies child nodes and updates the parent's corresponding entries in `children`.
-    async fn rebalance_borrow_from_right(
-        &mut self,
-        children: &mut Vec<InternalEntry>, // Parent's children list
-        underflow_idx: usize,
-        right_idx: usize
+         &mut self, children: &mut Vec<InternalEntry>, left_idx: usize, underflow_idx: usize
     ) -> Result<()> {
-        // Load the nodes involved
+        let mut left_node = self.load_node(&children[left_idx].child_hash).await?;
         let mut underflow_node = self.load_node(&children[underflow_idx].child_hash).await?;
-        let mut right_node = self.load_node(&children[right_idx].child_hash).await?;
+        match (&mut left_node, &mut underflow_node) {
+            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: underflow_entries, .. }) => {
+                if let Some(borrowed_entry) = left_entries.pop() { underflow_entries.insert(0, borrowed_entry); } 
+                else { return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string())); }
+            }
+            (Node::Internal { children: left_children, .. }, Node::Internal { children: underflow_children, .. }) => {
+                 if let Some(borrowed_child_entry) = left_children.pop() { underflow_children.insert(0, borrowed_child_entry); } 
+                 else { return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string())); }
+            }
+            _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
+        }
+        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
+        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
+        children[left_idx].boundary_key = new_left_boundary; 
+        children[left_idx].child_hash = new_left_hash;
+        children[underflow_idx].boundary_key = new_underflow_boundary; // Boundary DOES change
+        children[underflow_idx].child_hash = new_underflow_hash; 
+        Ok(())
+    }
 
-        // Perform the borrow based on node type
-        match (&mut underflow_node, &mut right_node) {
-            (Node::Leaf { entries: underflow_entries, .. }, Node::Leaf { entries: right_entries, .. }) => {
-               if right_entries.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string())); }
-               let borrowed_entry = right_entries.remove(0);
-               underflow_entries.push(borrowed_entry);
+     async fn rebalance_borrow_from_right(
+         &mut self, children: &mut Vec<InternalEntry>, underflow_idx: usize, right_idx: usize
+     ) -> Result<()> {
+         let mut underflow_node = self.load_node(&children[underflow_idx].child_hash).await?;
+         let mut right_node = self.load_node(&children[right_idx].child_hash).await?;
+         match (&mut underflow_node, &mut right_node) {
+             (Node::Leaf { entries: underflow_entries, .. }, Node::Leaf { entries: right_entries, .. }) => {
+                if right_entries.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string())); }
+                let borrowed_entry = right_entries.remove(0); underflow_entries.push(borrowed_entry);
+             }
+             (Node::Internal { children: underflow_children, .. }, Node::Internal { children: right_children, .. }) => {
+                 if right_children.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string())); }
+                 let borrowed_child_entry = right_children.remove(0); underflow_children.push(borrowed_child_entry);
+             }
+              _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
+         }
+         let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
+         let (new_right_boundary, new_right_hash) = self.store_node_and_get_key_hash_pair(&right_node).await?;
+         children[underflow_idx].boundary_key = new_underflow_boundary; 
+         children[underflow_idx].child_hash = new_underflow_hash;
+         children[right_idx].boundary_key = new_right_boundary; // Boundary DOES change
+         children[right_idx].child_hash = new_right_hash; 
+         Ok(())
+     }
+
+    /// Helper to merge the node at `right_idx` into the node at `left_idx`.
+    /// Modifies the left child node, updates the parent's entry for the left child,
+    /// and removes the parent's entry for the right child from the `children` Vec.
+    async fn merge_into_left_sibling( // Renamed for clarity
+         &mut self,
+         children: &mut Vec<InternalEntry>, // Parent's children list
+         left_idx: usize,                   // Index of the node to merge into
+         right_idx: usize,                  // Index of the node to merge from (will be removed)
+    ) -> Result<()> {
+        if left_idx + 1 != right_idx {
+             return Err(ProllyError::InternalError(format!("Attempted to merge non-adjacent siblings: {} and {}", left_idx, right_idx)));
+         }
+        if right_idx >= children.len() {
+             return Err(ProllyError::InternalError(format!("Attempted to merge with invalid right index: {}", right_idx)));
+         }
+
+        let left_hash = children[left_idx].child_hash;
+        let right_hash = children[right_idx].child_hash; 
+
+        // Load nodes
+        let mut left_node = self.load_node(&left_hash).await?;
+        let right_node = self.load_node(&right_hash).await?; // Consumed below
+
+        // Perform merge
+        match (&mut left_node, right_node) {
+            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: mut right_entries, .. }) => {
+                left_entries.append(&mut right_entries); 
             }
-            (Node::Internal { children: underflow_children, .. }, Node::Internal { children: right_children, .. }) => {
-                if right_children.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string())); }
-                let borrowed_child_entry = right_children.remove(0);
-                underflow_children.push(borrowed_child_entry);
+            (Node::Internal { children: left_children, .. }, Node::Internal { children: mut right_children, .. }) => {
+                 left_children.append(&mut right_children); 
             }
-             _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
+            _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during merge".to_string())),
         }
 
-        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
-        let (new_right_boundary, new_right_hash) = self.store_node_and_get_key_hash_pair(&right_node).await?;
+        // Store merged left node
+        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
 
-        // Update the parent's entries
-        children[underflow_idx].boundary_key = new_underflow_boundary; // Update underflow boundary
-        children[underflow_idx].child_hash = new_underflow_hash;
-        children[right_idx].boundary_key = new_right_boundary; // REINSTATE boundary update
-        children[right_idx].child_hash = new_right_hash; 
+        // Update parent's entry for the left sibling
+        children[left_idx].boundary_key = new_left_boundary;
+        children[left_idx].child_hash = new_left_hash;
 
+        // Remove the parent's entry for the right sibling *from the vec passed in*
+        children.remove(right_idx);
+
+        // TODO: Garbage Collection for right_hash chunk
         Ok(())
     }
 
