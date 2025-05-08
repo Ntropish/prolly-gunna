@@ -243,4 +243,87 @@ describe("WasmProllyTree", () => {
     const r3 = (await tree.get(keyBinary)) as Uint8Array | null;
     expectU8Eq(r3, valBinary);
   });
+
+  it("should trigger a root leaf split and verify content", async () => {
+    const tree = new WasmProllyTree();
+    // Default fanout is 32. Insert 33 items to force a split.
+    const count = 33;
+    const inserted = new Map<string, string>();
+
+    for (let i = 0; i < count; i++) {
+      const keyStr = `split_key_${String(i).padStart(2, "0")}`;
+      const valStr = `split_val_${i}`;
+      await tree.insert(toU8(keyStr), toU8(valStr));
+      inserted.set(keyStr, valStr);
+    }
+
+    const rootHash = (await tree.getRootHash()) as Uint8Array | null;
+    expect(rootHash).not.toBeNull();
+    // We can't easily inspect the tree structure from JS,
+    // but we can verify all data is still present and retrievable.
+    expect(inserted.size).toBe(count);
+    for (const [keyStr, valStr] of inserted.entries()) {
+      const retrieved = (await tree.get(toU8(keyStr))) as Uint8Array | null;
+      expectU8Eq(retrieved, toU8(valStr), `Failed for ${keyStr} after split`);
+    }
+
+    // Also test load/export after a known split
+    const chunks = (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>;
+    expect(chunks.size).toBeGreaterThan(2); // Should have at least old root (now left leaf), right leaf, new root internal node
+
+    const tree2 = await WasmProllyTree.load(rootHash!, chunks);
+    const keyToTest = `split_key_${String(count - 1).padStart(2, "0")}`; // Test last key
+    const retrieved2 = (await tree2.get(toU8(keyToTest))) as Uint8Array | null;
+    expectU8Eq(retrieved2, toU8(inserted.get(keyToTest)!));
+  });
+
+  // Note: Testing internal node splits requires fanout * fanout items (e.g., 32*32 = 1024)
+  // which might be too slow for a unit test. This could be a longer-running integration test.
+  it.skip("should trigger internal node splits (large test)", async () => {
+    // Skipped by default due to size/time
+    const tree = new WasmProllyTree();
+    const count = 1025; // Fanout 32 * 32 + 1 (approximate threshold)
+    for (let i = 0; i < count; i++) {
+      const keyStr = `internal_split_${String(i).padStart(4, "0")}`;
+      const valStr = `val_${i}`;
+      await tree.insert(toU8(keyStr), toU8(valStr));
+    }
+    const rootHash = (await tree.getRootHash()) as Uint8Array | null;
+    expect(rootHash).not.toBeNull();
+    // Verify a few values
+    const retrieved = (await tree.get(
+      toU8("internal_split_0500")
+    )) as Uint8Array | null;
+    expectU8Eq(retrieved, toU8("val_500"));
+  });
+
+  it("should return consistent root hash if no modifications occur", async () => {
+    const tree = new WasmProllyTree();
+    await tree.insert(toU8("a"), toU8("1"));
+    const hash1 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Perform some read operations
+    await tree.get(toU8("a"));
+    await tree.get(toU8("nonexistent"));
+
+    const hash2 = (await tree.getRootHash()) as Uint8Array | null;
+    expectU8Eq(hash1, hash2); // Root hash should not change after only reads
+  });
+
+  it("should allow overwriting then getting other keys", async () => {
+    const tree = new WasmProllyTree();
+    await tree.insert(toU8("keyA"), toU8("valA1"));
+    await tree.insert(toU8("keyB"), toU8("valB1"));
+
+    // Overwrite keyA
+    await tree.insert(toU8("keyA"), toU8("valA2"));
+
+    // Check keyA has new value
+    const retrievedA = (await tree.get(toU8("keyA"))) as Uint8Array | null;
+    expectU8Eq(retrievedA, toU8("valA2"));
+
+    // Check keyB still has original value
+    const retrievedB = (await tree.get(toU8("keyB"))) as Uint8Array | null;
+    expectU8Eq(retrievedB, toU8("valB1"));
+  });
 });
