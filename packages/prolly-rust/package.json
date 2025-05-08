@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "wasm-pack build --target web --out-dir ../prolly-wasm --out-name prolly-wasm --release",
+    "build": "wasm-pack build --target web --out-dir ../prolly-wasm --release",
+    "build:node": "wasm-pack build --target nodejs --out-dir ../prolly-wasm",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
