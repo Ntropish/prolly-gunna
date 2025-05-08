@@ -9,12 +9,14 @@ mod diff;
 
 use wasm_bindgen::prelude::*;
 use store::memory::InMemoryStore;
+// Removed: use store::ChunkStore; // This import is no longer needed here
 use std::rc::Rc;
+use std::cell::RefCell;
 
 /// Public wrapper exported to JavaScript.
 #[wasm_bindgen]
 pub struct ProllyTree {
-    inner: tree::Tree<Rc<InMemoryStore>>,
+    inner: tree::Tree<InMemoryStore>,
 }
 
 #[wasm_bindgen]
@@ -22,15 +24,17 @@ impl ProllyTree {
     /// Construct an empty in‑memory tree.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        let store = Rc::new(InMemoryStore::default());
+        let store = Rc::new(RefCell::new(InMemoryStore::default()));
         Self { inner: tree::Tree::new(store) }
     }
 
     /// Re‑hydrate from `root` + `chunks` (a JS `Map<hash, Uint8Array>`).
     #[wasm_bindgen(js_name = "load")]
     pub fn load(root: &[u8], chunks: &js_sys::Map) -> Result<ProllyTree, JsValue> {
-        let store = Rc::new(InMemoryStore::from_js_map(chunks)?);
-        let inner = tree::Tree::from_root(root.try_into().map_err(|_| "bad hash")?, store)
+        let mem_store = InMemoryStore::from_js_map(chunks)?;
+        let store = Rc::new(RefCell::new(mem_store));
+        let root_hash_array: [u8; 32] = root.try_into().map_err(|_| JsValue::from_str("Root hash must be 32 bytes"))?;
+        let inner = tree::Tree::from_root(root_hash_array, store)
             .map_err(|e| JsValue::from_str(&e))?;
         Ok(Self { inner })
     }
@@ -66,12 +70,16 @@ mod tests {
         let mut t = ProllyTree::new();
         t.insert(b"alice", b"hello");
         t.insert(b"bob", b"world");
-        let root = t.commit();
+        let root_js_array = t.commit();
+        let mut root_hash = [0u8; 32];
+        root_js_array.copy_to(&mut root_hash);
+
+
         assert_eq!(t.get(b"alice").unwrap().to_vec(), b"hello");
 
         // Simulate peer loading from exported chunks
-        let chunks = t.inner.export_chunks_js();
-        let t2 = ProllyTree::load(&root.to_vec(), &chunks).unwrap();
+        let chunks_map = t.inner.export_chunks_js();
+        let t2 = ProllyTree::load(&root_hash, &chunks_map).unwrap();
         assert_eq!(t2.get(b"bob").unwrap().to_vec(), b"world");
     }
 }

@@ -1,20 +1,23 @@
 //! Pluggable chunk storage.  Starts with an in‑RAM HashMap.
 use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue};
-use js_sys::{Map, Uint8Array};
+use js_sys::{Map, Uint8Array, Array as JsArray};
+use crate::chunk::hash_bytes;
+use std::any::Any;
+// Removed: use std::cell::RefCell;
+// Removed: use std::rc::Rc;
 
 pub type Hash = [u8; 32];
 
-pub trait ChunkStore {
+// S must implement Any for downcasting purposes if needed
+pub trait ChunkStore: Any {
     fn get(&self, h: &Hash) -> Option<Vec<u8>>;
-    fn put(&self, bytes: &[u8]) -> Hash;
+    fn put(&mut self, bytes: &[u8]) -> Hash;
+    fn as_any_mut(&mut self) -> &mut dyn Any; // To get a mutable Any reference
+    fn as_any(&self) -> &dyn Any;       // To get an immutable Any reference
 }
 
-// Allow every `Rc<T>` where `T: ChunkStore` to behave like a store.
-impl<T: ChunkStore> ChunkStore for std::rc::Rc<T> {
-    fn get(&self, h: &Hash) -> Option<Vec<u8>> { (**self).get(h) }
-    fn put(&self, bytes: &[u8]) -> Hash { (**self).put(bytes) }
-}
+// REMOVED the problematic: impl<T: ChunkStore + 'static> ChunkStore for Rc<RefCell<T>> { ... }
 
 pub mod memory {
     use super::*;
@@ -24,26 +27,36 @@ pub mod memory {
 
     impl ChunkStore for InMemoryStore {
         fn get(&self, h: &Hash) -> Option<Vec<u8>> { self.0.get(h).cloned() }
-        fn put(&self, bytes: &[u8]) -> Hash {
-            let h = crate::hash_bytes(bytes);
+        fn put(&mut self, bytes: &[u8]) -> Hash {
+            let h = hash_bytes(bytes);
             self.0.insert(h, bytes.to_vec());
             h
         }
-        fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
+        fn as_any_mut(&mut self) -> &mut dyn Any { self }
+        fn as_any(&self) -> &dyn Any { self }
     }
 
     impl InMemoryStore {
         /// Convert a JS `Map<Uint8Array, Uint8Array>` ➜ Rust HashMap.
         pub fn from_js_map(map: &Map) -> Result<Self, JsValue> {
             let mut inner = HashMap::new();
-            let entries = js_sys::try_iter(map)?.ok_or("not iterable")?;
-            for entry in entries {
-                let pair = entry?.dyn_into::<js_sys::Array>()?::<js_sys::Array>()?;
-                let key = pair.get(0).dyn_into::<Uint8Array>()?;
-                let val = pair.get(1).dyn_into::<Uint8Array>()?;
+            let entries = js_sys::try_iter(map)?.ok_or_else(|| JsValue::from_str("not iterable"))?;
+            for entry_result in entries {
+                let entry = entry_result?;
+                let pair_array = entry.dyn_into::<JsArray>()?;
+
+                let key_js = pair_array.get(0);
+                let val_js = pair_array.get(1);
+
+                let key_u8array = key_js.dyn_into::<Uint8Array>()?;
+                let val_u8array = val_js.dyn_into::<Uint8Array>()?;
+
+                if key_u8array.length() != 32 {
+                    return Err(JsValue::from_str("Hash key must be 32 bytes long"));
+                }
                 let mut h: Hash = [0u8; 32];
-                key.copy_to(&mut h);
-                inner.insert(h, val.to_vec());
+                key_u8array.copy_to(&mut h);
+                inner.insert(h, val_u8array.to_vec());
             }
             Ok(Self(inner))
         }
