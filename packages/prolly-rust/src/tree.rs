@@ -19,8 +19,9 @@ impl<S: ChunkStore + 'static> Tree<S> {
 
     /// Decode `root_hash` using `store`.
     pub fn from_root(root_hash: Hash, store: Rc<RefCell<S>>) -> Result<Self, String> {
-        let bytes = self.store.borrow().get(&root_hash).ok_or("root chunk missing")?;
+        let bytes = store.borrow().get(&root_hash).ok_or("root chunk missing")?; // Corrected line
         let node = Node::decode(&bytes);
+        // Pass the store parameter to the new Tree instance
         Ok(Self { root: node, dirty: false, store })
     }
 
