@@ -3,11 +3,18 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 // Adjust the relative path based on your test file's location
 // Might need to configure Vitest/TS paths if resolution fails.
-import { WasmProllyTree } from "prolly-wasm";
+import { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();
 const toU8 = (s: string): Uint8Array => encoder.encode(s);
+
+// Define DiffEntry type for clarity in tests
+type JsDiffEntry = {
+  key: Uint8Array;
+  leftValue?: Uint8Array;
+  rightValue?: Uint8Array;
+};
 
 const expectU8Eq = (
   a: Uint8Array | undefined | null,
@@ -596,4 +603,646 @@ describe("WasmProllyTree little fan", () => {
       "Final k05 check"
     ).toBeNull();
   });
+
+  // --- Test Deleting a Boundary Key ---
+  it("DELETE: should correctly handle deleting a boundary key", async () => {
+    const FANOUT = 4;
+    const MIN_FANOUT = 2;
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+
+    // Setup: Insert k01, k02, k03, k04, k05
+    // State: root -> [L(k01, k02){bd=k02}, R(k03, k04, k05){bd=k05}]
+    // The key 'k02' is the boundary key for the left child stored in the root.
+    const keys = ["k01", "k02", "k03", "k04", "k05"];
+    const values: { [key: string]: Uint8Array } = {};
+    for (const k of keys) {
+      const v = toU8(`v_${k}`);
+      values[k] = v;
+      await tree.insert(toU8(k), v);
+    }
+
+    // Action: Delete 'k02' (the boundary key of the left leaf)
+    console.log("TEST: Deleting boundary key k02...");
+    const deleted = await tree.delete(toU8("k02"));
+    expect(deleted, "delete k02 result").toBe(true);
+
+    // Expected State:
+    // Left leaf becomes (k01), size 1 -> Underflow.
+    // Right leaf is (k03, k04, k05), size 3 -> Can lend.
+    // Rebalance (borrow from right): Move 'k03' from right to left.
+    // Final state: root -> [L(k01, k03){bd=k03}, R(k04, k05){bd=k05}]
+    // Note: The boundary key for the left child in the root should update from k02 to k03.
+
+    console.log("TEST: Verifying state after deleting boundary k02...");
+    // Check deleted key
+    expect(
+      (await tree.get(toU8("k02"))) as Uint8Array | null,
+      "k02 after delete"
+    ).toBeNull();
+
+    // Check remaining keys are in correct final state
+    expectU8Eq(
+      (await tree.get(toU8("k01"))) as Uint8Array | null,
+      values["k01"],
+      "k01 after k02 delete"
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k03"))) as Uint8Array | null,
+      values["k03"],
+      "k03 after k02 delete"
+    ); // Should still exist
+    expectU8Eq(
+      (await tree.get(toU8("k04"))) as Uint8Array | null,
+      values["k04"],
+      "k04 after k02 delete"
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k05"))) as Uint8Array | null,
+      values["k05"],
+      "k05 after k02 delete"
+    );
+
+    // Verify root hash changed
+    const finalHash = await tree.getRootHash();
+    const initialHash = await tree.getRootHash(); // Re-getting initial hash won't work, need to store it earlier if needed for comparison
+    expect(finalHash).not.toBeNull();
+    // We don't have the hash from *before* the k02 delete easily, but we know state changed.
+  });
 });
+
+// Helper to create a large Uint8Array with pseudo-random but deterministic content
+function createLargeTestData(size: number, seed: number = 42): Uint8Array {
+  const buffer = new Uint8Array(size);
+  let current = seed;
+  for (let i = 0; i < size; i++) {
+    // Simple pseudo-random generator (linear congruential generator)
+    current = (current * 1103515245 + 12345) % 2 ** 31;
+    buffer[i] = current % 256;
+  }
+  return buffer;
+}
+
+describe("WasmProllyTree CDC", () => {
+  // Default config thresholds (approx based on Rust defaults):
+  const MAX_INLINE = 1024;
+  const AVG_CHUNK = 16 * 1024;
+
+  it("CDC: should store small values inline", async () => {
+    const tree = new WasmProllyTree();
+    const key = toU8("small_value_key");
+    const value = createLargeTestData(MAX_INLINE - 10); // Just below threshold
+
+    const chunksBefore = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeBefore = chunksBefore.size;
+
+    await tree.insert(key, value);
+
+    const retrieved = (await tree.get(key)) as Uint8Array | null;
+    expectU8Eq(
+      retrieved,
+      value,
+      "Retrieved value should match small inline value"
+    );
+
+    const chunksAfter = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeAfter = chunksAfter.size;
+
+    // Expect only node chunks to be added (root, maybe 1 leaf if empty before)
+    expect(sizeAfter).toBeLessThanOrEqual(sizeBefore + 2);
+    // Note: This check isn't perfect, splits could add more nodes, but we expect *no data chunks*
+  });
+
+  it("CDC: should chunk value slightly above inline threshold", async () => {
+    const tree = new WasmProllyTree();
+    const key = toU8("chunked_value_key_1");
+    const value = createLargeTestData(MAX_INLINE + 100); // Just above threshold
+
+    const chunksBefore = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeBefore = chunksBefore.size;
+    const initialRootHash = await tree.getRootHash();
+
+    await tree.insert(key, value);
+
+    const retrieved = (await tree.get(key)) as Uint8Array | null;
+    expectU8Eq(
+      retrieved,
+      value,
+      "Retrieved value should match simple chunked value"
+    );
+
+    const finalRootHash = await tree.getRootHash();
+    expect(finalRootHash).not.toEqual(initialRootHash); // Ensure tree state changed
+
+    const chunksAfter = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeAfter = chunksAfter.size;
+
+    // Expect node chunks + at least one data chunk
+    expect(sizeAfter).toBeGreaterThan(sizeBefore + 1);
+    // We expect *at least* 1 data chunk + 1 (leaf) node chunk + maybe 1 root node update = 3 increase minimum
+    // It could be more if the value splits or the tree structure updates more nodes.
+    // A tighter bound is hard without knowing exact structure/CDC splits.
+    // Let's check for a plausible increase (e.g., >= 2 chunks added: 1 data + 1 node update)
+    expect(sizeAfter).toBeGreaterThanOrEqual(sizeBefore + 2);
+  });
+
+  it("CDC: should chunk large value into multiple chunks", async () => {
+    const tree = new WasmProllyTree();
+    const key = toU8("multi_chunk_value_key");
+    // Create value larger than average chunk size, likely to split
+    const value = createLargeTestData(AVG_CHUNK * 2 + 500);
+
+    const chunksBefore = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeBefore = chunksBefore.size;
+
+    await tree.insert(key, value);
+
+    const retrieved = (await tree.get(key)) as Uint8Array | null;
+    expectU8Eq(
+      retrieved,
+      value,
+      "Retrieved value should match multi-chunked value"
+    );
+
+    const chunksAfter = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeAfter = chunksAfter.size;
+
+    // Expect node chunks + multiple data chunks (likely 2-3 data chunks for 2*AVG size)
+    // Expect increase of at least 3: 2 data chunks + 1 node update
+    expect(sizeAfter).toBeGreaterThanOrEqual(sizeBefore + 3);
+  });
+
+  it("CDC: should deduplicate identical large values", async () => {
+    const tree = new WasmProllyTree();
+    const key1 = toU8("dedup_key_1");
+    const key2 = toU8("dedup_key_2");
+    // Value large enough to be chunked (likely multiple chunks)
+    const largeValue = createLargeTestData(AVG_CHUNK * 3);
+
+    // Insert first value
+    await tree.insert(key1, largeValue);
+    const chunksAfter1 = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeAfter1 = chunksAfter1.size;
+    const rootHash1 = await tree.getRootHash();
+    expect(sizeAfter1).toBeGreaterThan(2); // Expect >2 chunks (nodes + data)
+
+    // Insert IDENTICAL value with a different key
+    await tree.insert(key2, largeValue);
+    const chunksAfter2 = (await tree.exportChunks()) as Map<
+      Uint8Array,
+      Uint8Array
+    >;
+    const sizeAfter2 = chunksAfter2.size;
+    const rootHash2 = await tree.getRootHash();
+
+    // Verify retrieval
+    const retrieved1 = (await tree.get(key1)) as Uint8Array | null;
+    expectU8Eq(
+      retrieved1,
+      largeValue,
+      "Retrieval key 1 failed after dedup insert"
+    );
+    const retrieved2 = (await tree.get(key2)) as Uint8Array | null;
+    expectU8Eq(
+      retrieved2,
+      largeValue,
+      "Retrieval key 2 failed after dedup insert"
+    );
+
+    expect(rootHash2).not.toEqual(rootHash1); // Root hash must change (leaf node updated)
+
+    // *** The Core Deduplication Check ***
+    // The number of chunks should increase only by the number of *new node chunks* created/modified.
+    // It should NOT increase by the number of data chunks again.
+    // Expect maybe 1-3 new/modified node chunks (leaf, maybe parent, maybe root).
+    // This check is heuristic. A very large fanout might only modify 1 leaf.
+    console.log(`Store size after 1st large insert: ${sizeAfter1}`);
+    console.log(`Store size after 2nd identical large insert: ${sizeAfter2}`);
+    const chunkIncrease = sizeAfter2 - sizeAfter1;
+    console.log(`Chunk increase: ${chunkIncrease}`);
+    // Number of data chunks for 3*AVG is likely 3-4. Increase should be much less.
+    expect(chunkIncrease).toBeLessThan(5);
+    expect(chunkIncrease).toBeGreaterThan(0);
+  });
+});
+
+// Helper to decode JS iterator result value
+function decodeIteratorValue(
+  resultValue: any
+): [Uint8Array, Uint8Array] | null {
+  if (!resultValue || !Array.isArray(resultValue)) return null;
+  if (resultValue.length !== 2) return null;
+  if (
+    !(resultValue[0] instanceof Uint8Array) ||
+    !(resultValue[1] instanceof Uint8Array)
+  )
+    return null;
+  return [resultValue[0], resultValue[1]];
+}
+// Helper to compare key arrays
+const expectKeyArrayEq = (
+  a: Uint8Array[],
+  b: Uint8Array[],
+  message?: string
+) => {
+  expect(a.length, message).toEqual(b.length);
+  for (let i = 0; i < a.length; i++) {
+    expectU8Eq(a[i], b[i], `${message} - index ${i}`);
+  }
+};
+
+// --- New Describe Block for Cursor Tests ---
+describe("WasmProllyTreeCursor", () => {
+  it("should iterate over an empty tree", async () => {
+    const tree = new WasmProllyTree();
+    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const result = await cursor.next();
+
+    expect(result.done).toBe(true);
+    expect(result.value).toBeUndefined();
+  });
+
+  it("should iterate over a single-leaf tree in order", async () => {
+    const tree = new WasmProllyTree();
+    const items = [
+      { k: "b", v: "vb" },
+      { k: "a", v: "va" },
+      { k: "c", v: "vc" },
+    ];
+    const expectedKeys = ["a", "b", "c"].map(toU8);
+    const expectedValues = ["va", "vb", "vc"].map(toU8);
+
+    for (const item of items) {
+      await tree.insert(toU8(item.k), toU8(item.v));
+    }
+
+    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const collectedKeys: Uint8Array[] = [];
+    const collectedValues: Uint8Array[] = [];
+
+    for (let i = 0; i < items.length + 1; i++) {
+      // Iterate one past expected length
+      const result = await cursor.next();
+      if (!result.done) {
+        const [key, value] = decodeIteratorValue(result.value)!;
+        collectedKeys.push(key);
+        collectedValues.push(value);
+      } else {
+        expect(i).toBe(items.length); // Should be done after 3 items
+        break;
+      }
+    }
+
+    expectKeyArrayEq(collectedKeys, expectedKeys, "Keys not in order");
+    expectKeyArrayEq(
+      collectedValues,
+      expectedValues,
+      "Values not matching keys"
+    );
+  });
+
+  it("should iterate over a multi-level tree (split) in order", async () => {
+    const tree = await WasmProllyTree.newWithConfig(4, 2); // Use small fanout
+    const count = 10;
+    const expectedItems: { k: Uint8Array; v: Uint8Array }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const keyStr = `k_${String(i).padStart(2, "0")}`;
+      const valStr = `v_${i}`;
+      const key = toU8(keyStr);
+      const val = toU8(valStr);
+      await tree.insert(key, val);
+      expectedItems.push({ k: key, v: val });
+    }
+    expectedItems.sort((a, b) => Buffer.from(a.k).compare(Buffer.from(b.k))); // Sort expected items by key
+
+    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const collectedItems: { k: Uint8Array; v: Uint8Array }[] = [];
+
+    console.log("Starting iteration loop...");
+    for (let iterCount = 0; iterCount < 20; iterCount++) {
+      // Limit iterations
+      console.log(`Iteration ${iterCount}, calling next()...`);
+      const result = await cursor.next();
+      console.log(`Iteration ${iterCount}, next() returned:`, result);
+      if (result.done) {
+        console.log(`Iteration ${iterCount}, DONE.`);
+        break;
+      }
+      const [key, value] = decodeIteratorValue(result.value)!;
+      collectedItems.push({ k: key, v: value });
+    }
+    if (collectedItems.length < expectedItems.length) {
+      console.warn("Loop terminated early due to iteration limit!");
+    }
+
+    expect(collectedItems.length).toBe(expectedItems.length);
+    for (let i = 0; i < expectedItems.length; i++) {
+      expectU8Eq(
+        collectedItems[i].k,
+        expectedItems[i].k,
+        `Key mismatch at index ${i}`
+      );
+      expectU8Eq(
+        collectedItems[i].v,
+        expectedItems[i].v,
+        `Value mismatch at index ${i}`
+      );
+    }
+  }, 10_000);
+
+  it("should seek to a specific key", async () => {
+    const tree = new WasmProllyTree();
+    const items = ["a", "b", "c", "d", "e", "f", "g"].map((k) => ({
+      k,
+      v: `v${k}`,
+    }));
+    for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
+
+    const seekKey = toU8("d");
+    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+
+    const collectedKeys: string[] = [];
+    while (true) {
+      const result = await cursor.next();
+      if (result.done) break;
+      const [key] = decodeIteratorValue(result.value)!;
+      collectedKeys.push(Buffer.from(key).toString()); // Collect as string for easier compare
+    }
+
+    expect(collectedKeys).toEqual(["d", "e", "f", "g"]);
+  });
+
+  it("should seek past the last key", async () => {
+    const tree = new WasmProllyTree();
+    const items = ["a", "b", "c"].map((k) => ({ k, v: `v${k}` }));
+    for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
+
+    const seekKey = toU8("d"); // Key after all existing keys
+    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+
+    const result = await cursor.next();
+    expect(result.done).toBe(true);
+  });
+
+  it("should seek to the first key", async () => {
+    const tree = new WasmProllyTree();
+    const items = ["b", "c", "a"].map((k) => ({ k, v: `v${k}` })); // Insert out of order
+    for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
+
+    const seekKey = toU8("a"); // Seek to first actual key
+    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+
+    const collectedKeys: string[] = [];
+    while (true) {
+      const result = await cursor.next();
+      if (result.done) break;
+      const [key] = decodeIteratorValue(result.value)!;
+      collectedKeys.push(Buffer.from(key).toString());
+    }
+    expect(collectedKeys).toEqual(["a", "b", "c"]);
+  });
+
+  it("should iterate correctly over chunked values (CDC)", async () => {
+    const tree = new WasmProllyTree();
+    const keySmall = toU8("small");
+    const valSmall = toU8("v_small");
+    const keyLarge = toU8("large");
+    const valLarge = createLargeTestData(2000); // Above 1k threshold
+    const keyMiddle = toU8("middle");
+    const valMiddle = toU8("v_middle");
+
+    // Insert out of order
+    await tree.insert(keyLarge, valLarge);
+    await tree.insert(keySmall, valSmall);
+    await tree.insert(keyMiddle, valMiddle);
+
+    const expectedKeys = [keyLarge, keyMiddle, keySmall]; // Expected iteration order
+    const expectedValues = [valLarge, valMiddle, valSmall];
+
+    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const collectedKeys: Uint8Array[] = [];
+    const collectedValues: Uint8Array[] = [];
+
+    while (true) {
+      const result = await cursor.next();
+      if (result.done) break;
+      const [key, value] = decodeIteratorValue(result.value)!;
+      collectedKeys.push(key);
+      collectedValues.push(value);
+    }
+
+    expectKeyArrayEq(collectedKeys, expectedKeys, "CDC Keys not in order");
+    expectKeyArrayEq(
+      collectedValues,
+      expectedValues,
+      "CDC Values not matching keys"
+    );
+  });
+});
+
+// Helper to compare diff entries (ignoring order for simplicity, checking presence/content)
+// A more robust check would sort both arrays first by key.
+function expectDiffsToMatch(
+  actualDiffs: JsDiffEntry[],
+  expectedDiffs: JsDiffEntry[],
+  message?: string
+) {
+  const context = message ? `: ${message}` : "";
+  expect(actualDiffs.length, `Diff count mismatch${context}`).toBe(
+    expectedDiffs.length
+  );
+
+  const findAndCompare = (entry: JsDiffEntry) => {
+    const match = actualDiffs.find((a) =>
+      Buffer.from(a.key).equals(Buffer.from(entry.key))
+    );
+    expect(
+      match,
+      `Expected diff entry for key ${Buffer.from(
+        entry.key
+      ).toString()} not found${context}`
+    ).toBeDefined();
+    if (match) {
+      expect(
+        match.leftValue !== undefined,
+        `Match for ${Buffer.from(entry.key)} missing leftValue?${context}`
+      ).toBe(entry.leftValue !== undefined);
+      expect(
+        match.rightValue !== undefined,
+        `Match for ${Buffer.from(entry.key)} missing rightValue?${context}`
+      ).toBe(entry.rightValue !== undefined);
+      if (entry.leftValue) {
+        expectU8Eq(
+          match.leftValue,
+          entry.leftValue,
+          `Left value mismatch for ${Buffer.from(entry.key)}`
+        );
+      }
+      if (entry.rightValue) {
+        expectU8Eq(
+          match.rightValue,
+          entry.rightValue,
+          `Right value mismatch for ${Buffer.from(entry.key)}`
+        );
+      }
+    }
+  };
+
+  expectedDiffs.forEach(findAndCompare);
+}
+
+describe("WasmProllyTree Diff", () => {
+  it("should return empty diff for identical trees", async () => {
+    const tree = new WasmProllyTree();
+    await tree.insert(toU8("a"), toU8("1"));
+    await tree.insert(toU8("b"), toU8("2"));
+    const hash1 = (await tree.getRootHash()) as Uint8Array | null;
+    // Diff hash1 against hash1
+    const diffs = (await tree.diffRoots(hash1, hash1)) as JsDiffEntry[];
+    expect(diffs).toEqual([]);
+  });
+
+  it("should return empty diff for two empty trees", async () => {
+    const tree = new WasmProllyTree();
+    // Diff null against null
+    const diffs = (await tree.diffRoots(null, null)) as JsDiffEntry[];
+    expect(diffs).toEqual([]);
+  });
+
+  // *** Un-skip and correct additions test ***
+  it("should detect additions (diff empty vs non-empty)", async () => {
+    const tree = new WasmProllyTree(); // Use one tree
+    const hash_initial = (await tree.getRootHash()) as Uint8Array | null; // null
+
+    await tree.insert(toU8("a"), toU8("1"));
+    await tree.insert(toU8("c"), toU8("3"));
+    const hash_final = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Diff initial state (null) -> final state (hash_final) using the tree's store
+    const diffs_add = (await tree.diffRoots(
+      hash_initial,
+      hash_final
+    )) as JsDiffEntry[];
+
+    const expected_add: JsDiffEntry[] = [
+      { key: toU8("a"), rightValue: toU8("1") }, // Added 'a'
+      { key: toU8("c"), rightValue: toU8("3") }, // Added 'c'
+    ];
+    expectDiffsToMatch(diffs_add, expected_add, "Additions diff");
+  });
+
+  it("should detect deletions (diff non-empty vs empty)", async () => {
+    const tree = new WasmProllyTree();
+    await tree.insert(toU8("a"), toU8("1"));
+    await tree.insert(toU8("c"), toU8("3"));
+    const hash_initial = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Diff initial state (hash_initial) -> null
+    const diffs_del = (await tree.diffRoots(
+      hash_initial,
+      null
+    )) as JsDiffEntry[];
+
+    const expected_del: JsDiffEntry[] = [
+      { key: toU8("a"), leftValue: toU8("1") },
+      { key: toU8("c"), leftValue: toU8("3") },
+    ];
+    expectDiffsToMatch(diffs_del, expected_del, "Deletions diff");
+  });
+
+  it("should detect modifications", async () => {
+    const tree = new WasmProllyTree();
+    // State 1
+    await tree.insert(toU8("a"), toU8("1"));
+    await tree.insert(toU8("b"), toU8("2"));
+    await tree.insert(toU8("c"), toU8("3"));
+    const hash1 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // State 2 (modify b in the same tree instance)
+    await tree.insert(toU8("b"), toU8("CHANGED"));
+    const hash2 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Diff hash1 -> hash2 using the tree's store
+    const diffs = (await tree.diffRoots(hash1, hash2)) as JsDiffEntry[];
+
+    const expected: JsDiffEntry[] = [
+      { key: toU8("b"), leftValue: toU8("2"), rightValue: toU8("CHANGED") },
+    ];
+    expectDiffsToMatch(diffs, expected, "Modification diff");
+  });
+
+  it("should detect mixed additions, deletions, modifications", async () => {
+    const tree = new WasmProllyTree();
+    // State 1
+    await tree.insert(toU8("a"), toU8("val_a"));
+    await tree.insert(toU8("b"), toU8("val_b"));
+    await tree.insert(toU8("c"), toU8("val_c"));
+    const hash1 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // State 2
+    await tree.delete(toU8("c"));
+    await tree.insert(toU8("b"), toU8("val_b_mod"));
+    await tree.insert(toU8("d"), toU8("val_d"));
+    const hash2 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Diff hash1 -> hash2
+    const diffs = (await tree.diffRoots(hash1, hash2)) as JsDiffEntry[];
+
+    const expected: JsDiffEntry[] = [
+      {
+        key: toU8("b"),
+        leftValue: toU8("val_b"),
+        rightValue: toU8("val_b_mod"),
+      },
+      { key: toU8("c"), leftValue: toU8("val_c") }, // Deletion
+      { key: toU8("d"), rightValue: toU8("val_d") }, // Addition
+    ];
+    expectDiffsToMatch(diffs, expected, "Mixed diff");
+  });
+
+  it("should handle diff with CDC values", async () => {
+    const tree = new WasmProllyTree();
+    const largeVal1 = createLargeTestData(2000, 1);
+    const largeVal2 = createLargeTestData(2500, 2);
+
+    // State 1
+    await tree.insert(toU8("a"), toU8("val_a"));
+    await tree.insert(toU8("large"), largeVal1);
+    const hash1 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // State 2
+    await tree.insert(toU8("large"), largeVal2); // Modify large value
+    await tree.insert(toU8("z"), toU8("val_z"));
+    const hash2 = (await tree.getRootHash()) as Uint8Array | null;
+
+    // Diff hash1 -> hash2
+    const diffs = (await tree.diffRoots(hash1, hash2)) as JsDiffEntry[];
+
+    const expected: JsDiffEntry[] = [
+      { key: toU8("large"), leftValue: largeVal1, rightValue: largeVal2 }, // Modification (large)
+      { key: toU8("z"), rightValue: toU8("val_z") }, // Addition
+    ];
+    expectDiffsToMatch(diffs, expected, "CDC diff");
+  });
+}); // End Diff describe block

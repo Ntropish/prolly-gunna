@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture; // For converting Rust Futures to JS Promises
-use js_sys::{Promise, Uint8Array, Map as JsMap};
+use wasm_bindgen_futures::JsFuture; 
+use js_sys::{Promise, Uint8Array, Map as JsMap, Object, Reflect, Array as JsArray}; // Added Object, Reflect
 
 // Declare all our modules
 pub mod common;
@@ -14,14 +14,16 @@ pub mod store;
 pub mod node;
 pub mod chunk;
 pub mod tree;
-// pub mod diff; // Still a placeholder, but declare it
+pub mod diff; 
 
 // Use our new ProllyTree and InMemoryStore
 use crate::tree::ProllyTree;
 use crate::store::InMemoryStore;
+use crate::tree::Cursor; // Ensure Cursor is imported
+use tokio::sync::Mutex; // Ensure Mutex is imported
 use crate::common::{TreeConfig, Key, Value, Hash};
 use crate::error::ProllyError;
-
+use crate::diff::DiffEntry; // Make sure DiffEntry is imported
 
 // Helper to convert ProllyError to JsValue
 fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
@@ -35,6 +37,50 @@ pub struct WasmProllyTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>, // Mutex for interior mutability from &self in Wasm
     // Tokio runtime handle. We need a way to spawn futures.
     // For wasm_bindgen_futures::spawn_local, we don't strictly need to store a handle here.
+}
+
+#[wasm_bindgen]
+pub struct WasmProllyTreeCursor {
+    inner: Arc<Mutex<Cursor<InMemoryStore>>>, // Explicit type here helps definition
+}
+
+#[wasm_bindgen]
+impl WasmProllyTreeCursor {
+    /// Advances the cursor and returns the next item.
+    /// Returns a Promise resolving to an object like:
+    /// `{ done: boolean, value?: [Uint8Array, Uint8Array] }`
+    #[wasm_bindgen]
+    pub fn next(&self) -> Promise {
+        // Add explicit type annotation here
+        let cursor_clone: Arc<Mutex<Cursor<InMemoryStore>>> = Arc::clone(&self.inner);
+
+        let future = async move {
+            let mut cursor = cursor_clone.lock().await; // Lock for mutable access to advance
+            match cursor.next().await {
+                Ok(Some((key, value))) => {
+                    // Create the result object { done: false, value: [key, value] }
+                    let key_js = Uint8Array::from(&key[..]);
+                    let val_js = Uint8Array::from(&value[..]);
+                    let js_array = js_sys::Array::new();
+                    js_array.push(&JsValue::from(key_js));
+                    js_array.push(&JsValue::from(val_js));
+
+                    let result_obj = Object::new();
+                    Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::FALSE)?;
+                    Reflect::set(&result_obj, &JsValue::from_str("value"), &JsValue::from(js_array))?;
+                    Ok(JsValue::from(result_obj))
+                }
+                Ok(None) => {
+                    // Create the result object { done: true }
+                    let result_obj = Object::new();
+                    Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::TRUE)?;
+                    Ok(JsValue::from(result_obj))
+                }
+                Err(e) => Err(prolly_error_to_jsvalue(e)),
+            }
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
 }
 
 #[wasm_bindgen]
@@ -219,6 +265,110 @@ impl WasmProllyTree {
             inner: Arc::new(tokio::sync::Mutex::new(tree)),
         })
     }
+
+    /// Creates a cursor starting before the first key-value pair.
+    /// Returns a Promise resolving to a WasmProllyTreeCursor.
+    #[wasm_bindgen(js_name = cursorStart)]
+    pub fn cursor_start(&self) -> Promise {
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+             let tree = tree_clone.lock().await;
+             tree.cursor_start().await
+                .map(|cursor| JsValue::from(WasmProllyTreeCursor { inner: Arc::new(tokio::sync::Mutex::new(cursor)) }))
+                .map_err(prolly_error_to_jsvalue)
+        };
+         wasm_bindgen_futures::future_to_promise(future)
+    }
+
+    /// Creates a cursor starting at or just after the given key.
+    /// Returns a Promise resolving to a WasmProllyTreeCursor.
+    #[wasm_bindgen]
+     pub fn seek(&self, key_js: &Uint8Array) -> Promise {
+         let key: Key = key_js.to_vec();
+         let tree_clone = Arc::clone(&self.inner);
+         let future = async move {
+              let tree = tree_clone.lock().await;
+              tree.seek(&key).await
+                 .map(|cursor| JsValue::from(WasmProllyTreeCursor { inner: Arc::new(tokio::sync::Mutex::new(cursor)) }))
+                 .map_err(prolly_error_to_jsvalue)
+         };
+          wasm_bindgen_futures::future_to_promise(future)
+     }
+
+    /// Computes the differences between two tree states represented by their root hashes,
+    /// using the chunk store associated with THIS tree instance.
+    ///
+    /// Requires that the underlying store contains all necessary chunks for *both* tree versions.
+    /// Pass `null` or `undefined` for a hash to represent an empty tree.
+    ///
+    /// Returns a Promise resolving to an array of diff objects:
+    /// `Array<{ key: Uint8Array, leftValue?: Uint8Array, rightValue?: Uint8Array }>`
+    #[wasm_bindgen(js_name = diffRoots)] // Renamed JS function
+    pub fn diff_roots( // Renamed Rust function
+        &self, // Still needs &self to access the store and config
+        root_hash_left_js: Option<Uint8Array>, 
+        root_hash_right_js: Option<Uint8Array>
+    ) -> Promise {
+        // Validate and convert left_hash
+        let hash_left_opt: Option<Hash> = match root_hash_left_js {
+            Some(js_arr) => {
+                if js_arr.length() == 32 {
+                    let mut h: Hash = [0u8; 32];
+                    js_arr.copy_to(&mut h);
+                    Some(h)
+                } else {
+                    return Promise::reject(&JsValue::from_str("Invalid root_hash_left length, must be 32 bytes or null/undefined"));
+                }
+            }
+            None => None, 
+        };
+        
+        // Validate and convert right_hash
+         let hash_right_opt: Option<Hash> = match root_hash_right_js {
+            Some(js_arr) => {
+                if js_arr.length() == 32 {
+                    let mut h: Hash = [0u8; 32];
+                    js_arr.copy_to(&mut h);
+                    Some(h)
+                } else {
+                    return Promise::reject(&JsValue::from_str("Invalid root_hash_right length, must be 32 bytes or null/undefined"));
+                }
+            }
+            None => None, 
+        };
+
+        let tree_clone = Arc::clone(&self.inner);
+
+        let future = async move {
+            let tree = tree_clone.lock().await;
+            // Call the core diff logic with the two specified roots
+            crate::diff::diff_trees( 
+                hash_left_opt, 
+                hash_right_opt, 
+                Arc::clone(&tree.store), // Use the store from this instance
+                tree.config.clone()     // Use the config from this instance
+            ).await 
+                .map(|diff_entries: Vec<DiffEntry>| {
+                    // --- Convert Vec<DiffEntry> to JsArray of JS Objects ---
+                    // (Keep the conversion logic from the previous diff implementation)
+                    let js_result_array = JsArray::new_with_length(diff_entries.len() as u32);
+                    for (index, entry) in diff_entries.iter().enumerate() {
+                        let js_entry_obj = Object::new();
+                        Reflect::set( &js_entry_obj, &JsValue::from_str("key"), &JsValue::from(Uint8Array::from(entry.key.as_slice())) ).unwrap_or_else(|_| panic!("Failed to set key"));
+                        if let Some(ref lv) = entry.left_value { Reflect::set( &js_entry_obj, &JsValue::from_str("leftValue"), &JsValue::from(Uint8Array::from(lv.as_slice())) ).unwrap_or_else(|_| panic!("Failed to set leftValue")); }
+                        if let Some(ref rv) = entry.right_value { Reflect::set( &js_entry_obj, &JsValue::from_str("rightValue"), &JsValue::from(Uint8Array::from(rv.as_slice())) ).unwrap_or_else(|_| panic!("Failed to set rightValue")); }
+                        js_result_array.set(index as u32, JsValue::from(js_entry_obj));
+                    }
+                    JsValue::from(js_result_array) 
+                    // --- End Conversion ---
+                })
+                .map_err(prolly_error_to_jsvalue) 
+        };
+
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
+
 }
 
 

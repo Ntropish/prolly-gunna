@@ -17,6 +17,10 @@ use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
 use crate::store::ChunkStore;
 use crate::chunk::{chunk_node, hash_bytes};
 
+use super::cursor::Cursor;
+
+use crate::diff::{diff_trees, DiffEntry}; 
+
 // --- Struct definitions (ProllyTree, ProcessedNodeUpdate) remain the same ---
 /// The main Prolly Tree structure.
 #[derive(Debug)]
@@ -70,6 +74,14 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
     }
 
+    /// Helper to load a node from the store.
+    /// Made `pub(crate)` to be accessible from the cursor module.
+    pub(crate) async fn load_node(&self, hash: &Hash) -> Result<Node> { // Changed visibility to pub(crate)
+        let bytes = self.store.get(hash).await?
+            .ok_or_else(|| ProllyError::ChunkNotFound(*hash))?;
+        Node::decode(&bytes)
+    }
+
     pub async fn from_root_hash( // Public
         root_hash: Hash,
         store: Arc<S>,
@@ -92,11 +104,7 @@ impl<S: ChunkStore> ProllyTree<S> {
         self.root_hash
     }
 
-    async fn load_node(&self, hash: &Hash) -> Result<Node> {
-        let bytes = self.store.get(hash).await?
-            .ok_or_else(|| ProllyError::ChunkNotFound(*hash))?;
-        Node::decode(&bytes)
-    }
+
 
     async fn store_node_and_get_key_hash_pair(&self, node: &Node) -> Result<(Key, Hash)> {
         let (hash, bytes) = chunk_node(node)?;
@@ -715,5 +723,29 @@ impl<S: ChunkStore> ProllyTree<S> {
 
     pub async fn commit(&mut self) -> Result<Option<Hash>> { // Public
         Ok(self.root_hash)
+    }
+
+    /// Creates a cursor starting before the first key-value pair.
+    pub async fn cursor_start(&self) -> Result<Cursor<S>> {
+        Cursor::new_at_start(self).await
+    }
+
+    /// Creates a cursor starting at or just after the given key.
+    /// If the key exists, `cursor.next()` will yield that key-value pair first.
+    /// If the key doesn't exist, `cursor.next()` will yield the next key-value pair in order.
+    pub async fn seek(&self, key: &Key) -> Result<Cursor<S>> {
+            Cursor::new_at_key(self, key).await
+    }
+
+    /// Computes the differences between this tree state and another tree state
+    /// represented by `other_root_hash`.
+    /// Requires that the `store` contains all necessary chunks for both tree versions.
+    pub async fn diff(&self, other_root_hash: Option<Hash>) -> Result<Vec<DiffEntry>> {
+        diff_trees(
+            self.root_hash, // Left side is current tree
+            other_root_hash, // Right side is the other tree
+            Arc::clone(&self.store),
+            self.config.clone()
+        ).await
     }
 }
