@@ -1,0 +1,15 @@
+{
+  "name": "prolly-gunna",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "deploy-web": "pnpm --filter edge-detect-web run build && pnpm --filter edge-detect-web run deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

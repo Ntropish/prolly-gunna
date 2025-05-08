@@ -1,0 +1,13 @@
+{
+  "name": "prolly-rust",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir ../prolly-wasm",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
