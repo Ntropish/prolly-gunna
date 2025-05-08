@@ -327,3 +327,175 @@ describe("WasmProllyTree", () => {
     expectU8Eq(retrievedB, toU8("valB1"));
   });
 });
+
+describe("WasmProllyTree little fan", () => {
+  const FANOUT = 4; // Target Fanout
+  const MIN_FANOUT = 2; // Min Fanout
+
+  it("DELETE: should trigger leaf merge", async () => {
+    // Setup: Need two leaf nodes after a split, each with minimum entries (2), then delete one
+    // Target fanout 4, min fanout 2. Split at 5 elements.
+    // Insert 5 keys to cause split (left leaf 2, right leaf 3)
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+    const keys = ["k01", "k02", "k03", "k04", "k05"];
+    for (const k of keys) {
+      await tree.insert(toU8(k), toU8(`v_${k}`));
+    }
+    // Expected state: root -> [leaf(k01, k02), leaf(k03, k04, k05)] (approx split)
+
+    // Delete k01 (left leaf will have 1 entry < min_fanout)
+    const deleted1 = await tree.delete(toU8("k01"));
+    expect(deleted1, "Deleting k01 should return true").toBe(true);
+
+    // Expect merge: left leaf (k02) merges with right leaf (k03, k04, k05) -> root is now a leaf node again
+    // Verify all remaining keys exist
+    expectU8Eq(
+      (await tree.get(toU8("k02"))) as Uint8Array | null,
+      toU8("v_k02")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k03"))) as Uint8Array | null,
+      toU8("v_k03")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k04"))) as Uint8Array | null,
+      toU8("v_k04")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k05"))) as Uint8Array | null,
+      toU8("v_k05")
+    );
+    // Verify deleted key is gone
+    expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
+
+    // Check root hash changed after delete/merge
+    const finalHash = (await tree.getRootHash()) as Uint8Array | null;
+    expect(finalHash).not.toBeNull();
+    // We can't easily verify the structure change without inspecting nodes/level
+  });
+
+  it("DELETE: should trigger leaf rebalance (borrow from right)", async () => {
+    // Setup: Left leaf with 1 (underflow), Right leaf with 3 (can lend)
+    // Target fanout 4, min fanout 2. Split at 5 elements.
+    // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+    const keys = ["k01", "k02", "k03", "k04", "k05"];
+    for (const k of keys) {
+      await tree.insert(toU8(k), toU8(`v_${k}`));
+    }
+
+    // Delete k01 -> left leaf has k02 (size 1, needs borrow)
+    await tree.delete(toU8("k01"));
+
+    // Expect borrow from right: k03 moves from right to left.
+    // State should become: root -> [leaf(k02, k03), leaf(k04, k05)]
+    // Verify all remaining keys
+    expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
+    expectU8Eq(
+      (await tree.get(toU8("k02"))) as Uint8Array | null,
+      toU8("v_k02")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k03"))) as Uint8Array | null,
+      toU8("v_k03")
+    ); // Check moved key
+    expectU8Eq(
+      (await tree.get(toU8("k04"))) as Uint8Array | null,
+      toU8("v_k04")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k05"))) as Uint8Array | null,
+      toU8("v_k05")
+    );
+  });
+
+  it("DELETE: should trigger leaf rebalance (borrow from left)", async () => {
+    // Setup: Left leaf with 3 (can lend), Right leaf with 1 (underflow)
+    // Target fanout 4, min fanout 2. Split at 5 elements.
+    // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+    const keys = ["k01", "k02", "k03", "k04", "k05"];
+    for (const k of keys) {
+      await tree.insert(toU8(k), toU8(`v_${k}`));
+    }
+
+    // Delete k04 and k05 -> right leaf has k03 (size 1, needs borrow)
+    await tree.delete(toU8("k04"));
+    await tree.delete(toU8("k05"));
+
+    // Expect borrow from left: k02 moves from left to right.
+    // State should become: root -> [leaf(k01), leaf(k02, k03)]
+    // Verify all remaining keys
+    expectU8Eq(
+      (await tree.get(toU8("k01"))) as Uint8Array | null,
+      toU8("v_k01")
+    );
+    expectU8Eq(
+      (await tree.get(toU8("k02"))) as Uint8Array | null,
+      toU8("v_k02")
+    ); // Check moved key
+    expectU8Eq(
+      (await tree.get(toU8("k03"))) as Uint8Array | null,
+      toU8("v_k03")
+    );
+    expect((await tree.get(toU8("k04"))) as Uint8Array | null).toBeNull();
+    expect((await tree.get(toU8("k05"))) as Uint8Array | null).toBeNull();
+  });
+
+  it("DELETE: should empty the tree when deleting the last element", async () => {
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+    const key = toU8("last");
+    await tree.insert(key, toU8("value"));
+
+    expect((await tree.getRootHash()) as Uint8Array | null).not.toBeNull();
+
+    const deleted = await tree.delete(key);
+    expect(deleted).toBe(true);
+
+    expect((await tree.getRootHash()) as Uint8Array | null).toBeNull();
+    expect((await tree.get(key)) as Uint8Array | null).toBeNull();
+  });
+
+  it("should handle interleaved inserts and deletes", async () => {
+    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+    const N = 20; // Enough to cause some splits/merges potentially
+    const present = new Set<string>();
+
+    // Phase 1: Insert initial batch
+    for (let i = 0; i < N / 2; i++) {
+      const keyStr = `key_${String(i).padStart(2, "0")}`;
+      await tree.insert(toU8(keyStr), toU8(`val_${i}`));
+      present.add(keyStr);
+    }
+    const hash1 = await tree.getRootHash();
+
+    // Phase 2: Delete some, insert some
+    for (let i = 0; i < N / 4; i++) {
+      // Delete first quarter
+      const keyStr = `key_${String(i).padStart(2, "0")}`;
+      await tree.delete(toU8(keyStr));
+      present.delete(keyStr);
+    }
+    for (let i = N / 2; i < N; i++) {
+      // Insert second half
+      const keyStr = `key_${String(i).padStart(2, "0")}`;
+      await tree.insert(toU8(keyStr), toU8(`val_${i}`));
+      present.add(keyStr);
+    }
+    const hash2 = await tree.getRootHash();
+    expect(Array.from(hash1 as Uint8Array)).not.toEqual(
+      Array.from(hash2 as Uint8Array)
+    );
+
+    // Phase 3: Verify final state
+    for (let i = 0; i < N; i++) {
+      const keyStr = `key_${String(i).padStart(2, "0")}`;
+      const retrieved = (await tree.get(toU8(keyStr))) as Uint8Array | null;
+      if (present.has(keyStr)) {
+        expectU8Eq(retrieved, toU8(`val_${i}`));
+      } else {
+        expect(retrieved).toBeNull();
+      }
+    }
+  });
+});
