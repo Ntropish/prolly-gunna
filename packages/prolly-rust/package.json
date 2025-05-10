@@ -6,7 +6,7 @@
   "scripts": {
     "build": "wasm-pack build --target web --out-dir ../prolly-wasm --release",
     "build:node": "wasm-pack build --target nodejs --out-dir ../prolly-wasm",
-    "test": "wasm-pack test --firefox --headless"
+    "test": "wasm-pack test --chrome"
   },
   "keywords": [],
   "author": "",
