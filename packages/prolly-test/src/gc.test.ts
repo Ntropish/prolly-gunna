@@ -1,6 +1,6 @@
 // packages/prolly-test/src/prolly.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
-import { WasmProllyTree } from "prolly-wasm"; // Adjust import as needed
+import init, { WasmProllyTree } from "prolly-wasm";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();
@@ -47,6 +47,9 @@ async function countChunks(tree: WasmProllyTree): Promise<number> {
 }
 
 describe("WasmProllyTree Garbage Collection (GC)", () => {
+  beforeAll(async () => {
+    await init();
+  });
   it("GC: should do nothing on an empty store", async () => {
     const tree = new WasmProllyTree();
     const liveRoots: Uint8Array[] = [];

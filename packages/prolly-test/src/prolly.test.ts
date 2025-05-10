@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-import { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
+import init, { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();
@@ -56,7 +56,7 @@ function formatU8Array(arr: Uint8Array | null | undefined): string {
 
 beforeAll(async () => {
   // Initialize the Wasm module once before all tests
-  //   await init();
+  await init();
 });
 
 describe("WasmProllyTree", () => {
