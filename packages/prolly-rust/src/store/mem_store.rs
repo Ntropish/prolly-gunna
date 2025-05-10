@@ -6,7 +6,7 @@ use std::sync::Arc; // Using Arc for shared ownership with RwLock
 use tokio::sync::RwLock;
 
 use crate::common::Hash;
-use crate::error::{Result, ProllyError};
+use crate::error::Result;
 use crate::chunk::hash_bytes; // Assuming hash_bytes will be available from crate::chunk
 use super::chunk_store::ChunkStore;
 
@@ -67,6 +67,24 @@ impl ChunkStore for InMemoryStore {
         let guard = self.inner.read().await;
         Ok(guard.data.contains_key(hash))
     }
+
+    async fn delete_batch(&self, hashes: &[Hash]) -> Result<()> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+        let mut guard = self.inner.write().await;
+        for hash in hashes {
+            guard.data.remove(hash);
+        }
+        Ok(())
+    }
+
+    async fn all_hashes(&self) -> Result<Vec<Hash>> {
+        let guard = self.inner.read().await;
+        // Collect all keys (hashes) from the HashMap
+        let hashes_vec = guard.data.keys().cloned().collect();
+        Ok(hashes_vec)
+    }
 }
 
 // Wasm-specific helpers (like your original `from_js_map`) would go here if needed.
@@ -74,12 +92,12 @@ impl ChunkStore for InMemoryStore {
 // For now, let's keep the core store async and Wasm bindings can adapt later if necessary.
 // For example, if `from_js_map` must be sync due to Wasm constraints, it could
 // create a temporary sync HashMap and then construct InMemoryStore from that.
+// Wasm-specific helpers 
 #[cfg(target_arch = "wasm32")]
 mod wasm_specific {
     use super::*;
     use js_sys::{Map as JsMap, Uint8Array as JsUint8Array, Array as JsArray};
     use wasm_bindgen::{JsCast, JsValue};
-    use crate::error::ProllyError; // Ensure ProllyError is accessible
 
     impl InMemoryStore {
         /// Convert a JS `Map<Uint8Array, Uint8Array>` ➜ Rust HashMap, then to InMemoryStore.

@@ -1,13 +1,11 @@
 // ProllyTree Cursor Module
 use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
 
 use log::warn; 
 
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
-use crate::node::definition::{Node, LeafEntry, ValueRepr};
+use crate::node::definition::{Node, ValueRepr};
 use crate::store::ChunkStore;
 use super::ProllyTree; // Access sibling module
 
@@ -40,7 +38,7 @@ impl<S: ChunkStore> Cursor<S> {
         let store = Arc::clone(&tree.store);
         let config = tree.config.clone();
         let mut path = Vec::new();
-        let mut current_leaf_entry_idx = 0;
+        let current_leaf_entry_idx = 0;
 
         if let Some(root_hash) = tree.root_hash {
             let mut current_hash = root_hash;
@@ -132,7 +130,7 @@ impl<S: ChunkStore> Cursor<S> {
     pub async fn next(&mut self) -> Result<Option<(Key, Value)>> {
         loop {
             // Get current leaf node from the path stack
-            let (leaf_hash, current_leaf_node, _) = match self.path.last() {
+            let (_leaf_hash, current_leaf_node, _) = match self.path.last() {
                 Some(leaf_info) => leaf_info,
                 None => return Ok(None), // Path is empty, iteration finished or tree empty
             };

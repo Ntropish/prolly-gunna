@@ -24,7 +24,19 @@ pub trait ChunkStore: Send + Sync + std::fmt::Debug + 'static {
         self.get(hash).await.map(|opt| opt.is_some())
     }
 
+    /// Deletes a batch of chunks identified by their hashes.
+    /// This is primarily intended for use by a garbage collection process.
+    /// The method should succeed even if some of the provided hashes are not found.
+    async fn delete_batch(&self, hashes: &[Hash]) -> Result<()>;
+
+    /// Retrieves all unique chunk hashes currently present in the store.
+    /// This is used by the garbage collector to know the entire set of potentially collectible chunks.
+    /// Note: Depending on the store's size, this could return a large vector.
+    /// For very large stores, an asynchronous iterator might be more memory-efficient,
+    /// but Vec<Hash> is simpler for now.
+    async fn all_hashes(&self) -> Result<Vec<Hash>>;
+
     // Future considerations:
-    // async fn delete(&self, hash: &Hash) -> Result<()>; // For garbage collection
+    // async fn delete(&self, hash: &Hash) -> Result<()>; // Old single delete, now covered by delete_batch
     // async fn flush(&self) -> Result<()>; // If the store buffers writes
 }

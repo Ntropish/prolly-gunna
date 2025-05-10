@@ -10,9 +10,8 @@ use std::sync::Arc;
 
 use crate::common::{Hash, Key, Value, TreeConfig}; // Need config potentially for value loading?
 use crate::error::{Result, ProllyError};
-use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
+use crate::node::definition::{Node, ValueRepr};
 use crate::store::ChunkStore;
-use crate::tree::ProllyTree; 
 
 /// Represents a single difference between two tree versions.
 #[derive(Debug, Clone, PartialEq, Eq)]

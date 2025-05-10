@@ -6,8 +6,6 @@ use std::future::Future;
 
 use log::warn; 
 
-use async_trait::async_trait;
-
 use fastcdc::v2020::FastCDC;
 
 
@@ -20,6 +18,7 @@ use crate::chunk::{chunk_node, hash_bytes};
 use super::cursor::Cursor;
 
 use crate::diff::{diff_trees, DiffEntry}; 
+use crate::gc::GarbageCollector;
 
 // --- Struct definitions (ProllyTree, ProcessedNodeUpdate) remain the same ---
 /// The main Prolly Tree structure.
@@ -276,7 +275,122 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
         Ok(())
     }
+    fn recursive_delete_impl<'s>(
+        &'s mut self,
+        node_hash: Hash,
+        key: &'s Key,
+        level: u8,
+        key_actually_deleted_flag: &'s mut bool,
+    ) -> Pin<Box<dyn Future<Output = Result<DeleteRecursionResult>> + Send + 's>> {
+        Box::pin(async move {
+            // current_node_obj is an owned Node here
+            let mut current_node_obj = self.load_node(&node_hash).await?;
 
+            match &mut current_node_obj { // Takes a mutable reference to the owned Node
+                Node::Leaf { entries, .. } => {
+                    match entries.binary_search_by(|e| e.key.as_slice().cmp(key.as_slice())) {
+                        Ok(index) => {
+                            *key_actually_deleted_flag = true;
+                            entries.remove(index);
+                            if entries.is_empty() {
+                                 return Ok(DeleteRecursionResult::Merged);
+                            } else {
+                                // Pass an immutable reference to the (modified) owned current_node_obj
+                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
+                            }
+                        }
+                        Err(_) => {
+                            let boundary_key = match entries.last() {
+                                 Some(e) => e.key.clone(),
+                                 None => return Err(ProllyError::InternalError("Cannot get boundary key from empty leaf (key not found path)".to_string())),
+                            };
+                            Ok(DeleteRecursionResult::NotFound{ node_hash, boundary_key })
+                        }
+                    }
+                }
+                Node::Internal { children, .. } => { // children is &mut Vec<InternalEntry>
+                    let child_idx_to_descend = { /* ... unchanged ... */
+                        if children.is_empty() {
+                             return Err(ProllyError::InternalError("Internal node has no children during delete.".to_string()));
+                        }
+                        let mut idx_found = children.len() - 1;
+                        for (idx, child_entry) in children.iter().enumerate() {
+                            if key.as_slice() <= &child_entry.boundary_key {
+                                idx_found = idx;
+                                break;
+                            }
+                        }
+                        idx_found
+                    };
+
+                    let child_hash = children[child_idx_to_descend].child_hash;
+                    let child_level = level - 1;
+                     if child_level == u8::MAX {
+                         return Err(ProllyError::InternalError("Cannot descend for delete: child level would underflow.".to_string()));
+                    }
+
+                    let child_delete_result = self.recursive_delete_impl(child_hash, key, child_level, key_actually_deleted_flag).await?;
+
+                    match child_delete_result {
+                        DeleteRecursionResult::NotFound { .. } => { /* ... unchanged ... */
+                             let boundary_key = children.last().map(|ce| ce.boundary_key.clone())
+                                 .ok_or_else(|| ProllyError::InternalError("Cannot get boundary key from empty internal node (not found path)".to_string()))?;
+                             Ok(DeleteRecursionResult::NotFound { node_hash, boundary_key })
+                        }
+                        DeleteRecursionResult::Updated(child_update) => {
+                             children[child_idx_to_descend].child_hash = child_update.new_hash;
+                             children[child_idx_to_descend].boundary_key = child_update.new_boundary_key;
+
+                             let child_node = self.load_node(&child_update.new_hash).await?;
+                             let needs_rebalance_or_merge = child_node.is_underflow(&self.config);
+
+                             if needs_rebalance_or_merge {
+                                 self.handle_underflow(children, child_idx_to_descend).await?;
+                                 if children.is_empty() { return Ok(DeleteRecursionResult::Merged); }
+                             }
+
+                            if children.is_empty() {
+                                Ok(DeleteRecursionResult::Merged)
+                            } else {
+                                // Pass an immutable reference to the (modified) owned current_node_obj
+                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?; // <--- FIX APPLIED (was &*current_node_obj)
+                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
+                            }
+                        }
+                        DeleteRecursionResult::Merged => {
+                            children.remove(child_idx_to_descend);
+
+                            if children.is_empty() {
+                                return Ok(DeleteRecursionResult::Merged);
+                            }
+
+                            // Get an immutable reference to the (modified) owned current_node_obj
+                            let node_ref_for_check: &Node = &current_node_obj; // <--- FIX APPLIED (was &*current_node_obj)
+                            let is_node_underflow = node_ref_for_check.is_underflow(&self.config);
+                            
+                            let num_children_after_remove = match node_ref_for_check {
+                                Node::Internal { children: c, .. } => c.len(),
+                                _ => 0, 
+                            };
+
+                            if level > 0 && is_node_underflow && num_children_after_remove < self.config.min_fanout {
+                                Ok(DeleteRecursionResult::Merged)
+                            } else {
+                                // Pass the immutable reference node_ref_for_check (or just &current_node_obj directly)
+                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(node_ref_for_check).await?;
+                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate {
+                                    new_hash,
+                                    new_boundary_key: new_boundary,
+                                    split_info: None,
+                                }))
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
     
     fn recursive_insert_impl<'s>( // Private
         &'s mut self,
@@ -369,156 +483,44 @@ impl<S: ChunkStore> ProllyTree<S> {
     
     /// Deletes a key-value pair from the Prolly Tree.
     /// Returns `Ok(true)` if the key was found and deleted, `Ok(false)` otherwise.
-    pub async fn delete(&mut self, key: &Key) -> Result<bool> { // Public
+    pub async fn delete(&mut self, key: &Key) -> Result<bool> {
         let current_root_hash = match self.root_hash {
             Some(h) => h,
             None => return Ok(false), // Key not found in empty tree
         };
-        
-        // Need root level to check if root leaf becomes empty
-        let root_node = self.load_node(&current_root_hash).await?; 
+    
+        let root_node = self.load_node(&current_root_hash).await?;
         let root_level = root_node.level();
-
-        let result = self.recursive_delete_impl(current_root_hash, key, root_level).await?;
-
+        let mut key_was_actually_deleted = false; // This will be set by recursive_delete_impl
+    
+        let result = self.recursive_delete_impl(current_root_hash, key, root_level, &mut key_was_actually_deleted).await?;
+    
         match result {
              DeleteRecursionResult::NotFound { .. } => {
-                 // Key wasn't found anywhere. Root hash doesn't change.
-                 Ok(false) 
+                 // key_was_actually_deleted should be false if NotFound
+                 Ok(key_was_actually_deleted)
              }
              DeleteRecursionResult::Updated(update_info) => {
                 self.root_hash = Some(update_info.new_hash);
-                
-                // Check if root needs adjustment (e.g. internal with one child)
-                // Load the node *after* potentially updating self.root_hash
+    
                 let potentially_new_root_node = self.load_node(&self.root_hash.unwrap()).await?;
-                
+    
                 if let Node::Internal { ref children, .. } = potentially_new_root_node {
-                    if children.len() == 1 { // Root degraded to single child
+                    if children.len() == 1 { 
                         self.root_hash = Some(children[0].child_hash);
                         // TODO: GC old internal root node chunk?
                     }
                 }
-                // Note: Empty root leaf case is now handled by Merged result.
-                
-                Ok(true) // Key was found and deleted
+                Ok(key_was_actually_deleted) 
             }
             DeleteRecursionResult::Merged => {
-                // The root itself merged away (either empty leaf or internal with <2 children after merge). Tree is empty.
                 self.root_hash = None;
-                 // TODO: GC old root node chunk?
-                Ok(true) // Key was found and deleted
+                // TODO: GC old root node chunk?
+                Ok(key_was_actually_deleted) 
             }
         }
     }
 
-    // Recursive helper for deletion.
-    fn recursive_delete_impl<'s>(
-        &'s mut self,
-        node_hash: Hash,
-        key: &'s Key, // Use reference for key during descent
-        level: u8,
-    ) -> Pin<Box<dyn Future<Output = Result<DeleteRecursionResult>> + Send + 's>> {
-        Box::pin(async move {
-            let mut current_node_obj = self.load_node(&node_hash).await?;
-            let mut key_found_and_deleted = false; // Track if the key was actually found at leaf level
-
-             match &mut current_node_obj {
-                Node::Leaf { entries, .. } => {
-                    match entries.binary_search_by(|e| e.key.as_slice().cmp(key.as_slice())) {
-                        Ok(index) => { // Key found
-                            // TODO: Handle ValueRepr::Chunked - need to potentially delete value chunk(s)? Or rely on GC.
-                            entries.remove(index); // << MUTATES entries here
-    
-                            // Now that mutation is done, check the state *before* storing
-                            if entries.is_empty() {
-                                 // If a leaf becomes empty (root or not), it effectively merges away.
-                                 // No need to store the empty node.
-                                 return Ok(DeleteRecursionResult::Merged); 
-                            } else {
-                                // Leaf modified but not empty. Now we can store it.
-                                // The mutable borrow of `entries` is no longer needed for the check.
-                                // We pass an immutable borrow of `current_node_obj` for storing.
-                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
-                            }
-                        }
-                        Err(_) => { // Key not found
-                            // No change to the node. Return NotFound with original hash/key.
-                            // Need the boundary key, but avoid storing.
-                            let boundary_key = match entries.last() {
-                                 Some(e) => e.key.clone(),
-                                 None => return Err(ProllyError::InternalError("Cannot get boundary key from empty leaf (key not found path)".to_string())), // Should not be empty here
-                            };
-                            Ok(DeleteRecursionResult::NotFound{ node_hash, boundary_key })
-                        }
-                    }
-                }
-                Node::Internal { children, .. } => {
-                    // --- STEP 1: Find the index ---
-                    let child_idx_to_descend = { // Create a block scope to find the index
-                        let mut idx_found = children.len() - 1; 
-                        for (idx, child_entry) in children.iter().enumerate() {
-                            if key <= &child_entry.boundary_key { 
-                                idx_found = idx;
-                                break;
-                            }
-                        }
-                        idx_found // Return the index from the block
-                    };
-                
-                    // --- STEP 2: Get child info & Recurse ---
-                    let child_hash = children[child_idx_to_descend].child_hash; 
-                    let child_level = level - 1;
-                    let child_delete_result = self.recursive_delete_impl(child_hash, key, child_level).await?;
-                
-                    // --- STEP 3: Process Result (child_idx_to_descend is definitely in scope here) ---
-                    match child_delete_result {
-                        DeleteRecursionResult::NotFound { .. } => { /* ... as before ... */ 
-                             let boundary_key = children.last().map(|ce| ce.boundary_key.clone())
-                                 .ok_or_else(|| ProllyError::InternalError("Cannot get boundary key from empty internal node (not found path)".to_string()))?;
-                             Ok(DeleteRecursionResult::NotFound { node_hash, boundary_key })
-                        }
-                        DeleteRecursionResult::Updated(child_update) => {
-                             // Update using the index
-                             children[child_idx_to_descend].child_hash = child_update.new_hash;
-                             children[child_idx_to_descend].boundary_key = child_update.new_boundary_key;
-                             
-                             let child_node = self.load_node(&child_update.new_hash).await?;
-                             let needs_rebalance = child_node.is_underflow(&self.config); 
-                
-                             if needs_rebalance {
-                                 // Pass the index
-                                 self.handle_underflow(children, child_idx_to_descend).await?; 
-                                 if children.is_empty() { return Ok(DeleteRecursionResult::Merged); }
-                                 // Recheck underflow *after* handle_underflow possibly merged siblings
-                                 if level > 0 && children.len() < self.config.min_fanout { return Ok(DeleteRecursionResult::Merged); }
-                             }
-                            
-                            let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                            Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
-                        }
-                        DeleteRecursionResult::Merged => {
-                             // Use the index
-                            children.remove(child_idx_to_descend); 
-                            
-                            if children.is_empty() { return Ok(DeleteRecursionResult::Merged); }
-                
-                            let needs_merging = level > 0 && current_node_obj.is_underflow(&self.config); 
-                
-                            if needs_merging { 
-                                 Ok(DeleteRecursionResult::Merged) 
-                            } else {
-                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
-                            }
-                        }
-                    }
-                }
-            }
-            // The key_found_and_deleted flag isn't fully utilized here yet to return false from public delete.
-        })
-    }
 
         /// Handles underflow at a given child index in an internal node's children list.
     /// Tries to borrow from siblings first, then merges if necessary.
@@ -748,4 +750,33 @@ impl<S: ChunkStore> ProllyTree<S> {
             self.config.clone()
         ).await
     }
+
+    /// Performs garbage collection on the underlying chunk store.
+    ///
+    /// This method identifies and removes chunks that are no longer reachable
+    /// from the provided set of `live_root_hashes`. It's the responsibility
+    /// of the caller to provide all root hashes that represent active, desired
+    /// tree states.
+    ///
+    /// # Arguments
+    /// * `live_root_hashes`: A slice of `Hash` values. All chunks reachable from
+    ///   these roots (and the current tree's `self.root_hash` if it's not None
+    ///   and not already in the list) will be preserved.
+    ///
+    /// # Returns
+    /// `Ok(usize)` with the number of chunks collected (deleted), or an error.
+    pub async fn gc(&self, app_provided_live_root_hashes: &[Hash]) -> Result<usize> {
+        let collector = GarbageCollector::new(Arc::clone(&self.store));
+
+        // Include the current tree's own root_hash in the live set if it exists.
+        let mut all_live_roots_set = app_provided_live_root_hashes.iter().cloned().collect::<std::collections::HashSet<Hash>>();
+        if let Some(current_root) = self.root_hash {
+            all_live_roots_set.insert(current_root);
+        }
+        
+        let all_live_roots_vec = all_live_roots_set.into_iter().collect::<Vec<Hash>>();
+        
+        collector.collect(&all_live_roots_vec).await
+    }
+
 }

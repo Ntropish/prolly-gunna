@@ -6,7 +6,7 @@
   "scripts": {
     "build": "wasm-pack build --target web --out-dir ../prolly-wasm --release",
     "build:node": "wasm-pack build --target nodejs --out-dir ../prolly-wasm",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "wasm-pack test --firefox --headless"
   },
   "keywords": [],
   "author": "",

@@ -4,7 +4,10 @@
 
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
+
+#[cfg(test)]
 use wasm_bindgen_futures::JsFuture; 
+
 use js_sys::{Promise, Uint8Array, Map as JsMap, Object, Reflect, Array as JsArray}; // Added Object, Reflect
 
 // Declare all our modules
@@ -15,6 +18,7 @@ pub mod node;
 pub mod chunk;
 pub mod tree;
 pub mod diff; 
+pub mod gc;
 
 // Use our new ProllyTree and InMemoryStore
 use crate::tree::ProllyTree;
@@ -33,6 +37,7 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 /// Public wrapper for ProllyTree exported to JavaScript.
 /// This will specifically use an InMemoryStore for Wasm.
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct WasmProllyTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>, // Mutex for interior mutability from &self in Wasm
     // Tokio runtime handle. We need a way to spawn futures.
@@ -40,6 +45,7 @@ pub struct WasmProllyTree {
 }
 
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct WasmProllyTreeCursor {
     inner: Arc<Mutex<Cursor<InMemoryStore>>>, // Explicit type here helps definition
 }
@@ -116,11 +122,11 @@ impl WasmProllyTree {
         
         let config = TreeConfig::default();
 
-        let tree_arc = Arc::new(tokio::sync::Mutex::new(ProllyTree { // Placeholder, from_root_hash will create the real one
-            root_hash: None,
-            store: store.clone(), // temporary store clone, will be replaced by from_root_hash's store
-            config: config.clone(),
-        }));
+        // let tree_arc = Arc::new(tokio::sync::Mutex::new(ProllyTree { // Placeholder, from_root_hash will create the real one
+        //     root_hash: None,
+        //     store: store.clone(), // temporary store clone, will be replaced by from_root_hash's store
+        //     config: config.clone(),
+        // }));
         
         // wasm_bindgen_futures::spawn_local requires 'static lifetime for the future.
         // We need to clone Arcs to move them into the async block.
@@ -369,6 +375,51 @@ impl WasmProllyTree {
     }
 
 
+    /// Triggers garbage collection on the underlying store.
+    ///
+    /// The `live_root_hashes_js` should be a JavaScript array of `Uint8Array`s,
+    /// where each `Uint8Array` is a 32-byte root hash that should be considered live.
+    /// The current `WasmProllyTree` instance's own root hash will automatically be
+    /// included in the set of live roots if it exists.
+    ///
+    /// Returns a Promise that resolves with the number of chunks collected.
+    #[wasm_bindgen(js_name = triggerGc)]
+    pub fn trigger_gc(&self, live_root_hashes_js: &JsArray) -> Promise {
+        let mut live_root_hashes_rust: Vec<Hash> = Vec::new();
+
+        for i in 0..live_root_hashes_js.length() {
+            let val = live_root_hashes_js.get(i);
+            if let Some(js_uint8_array) = val.dyn_ref::<Uint8Array>() {
+                if js_uint8_array.length() == 32 {
+                    let mut hash_arr: Hash = [0u8; 32];
+                    js_uint8_array.copy_to(&mut hash_arr);
+                    live_root_hashes_rust.push(hash_arr);
+                } else {
+                    return Promise::reject(&JsValue::from_str(&format!(
+                        "Invalid hash length at index {}: expected 32, got {}",
+                        i,
+                        js_uint8_array.length()
+                    )));
+                }
+            } else {
+                return Promise::reject(&JsValue::from_str(&format!(
+                    "Element at index {} is not a Uint8Array",
+                    i
+                )));
+            }
+        }
+
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            let tree = tree_clone.lock().await; // Lock to access the tree's gc method
+            tree.gc(&live_root_hashes_rust).await // Call the ProllyTree::gc method
+                .map(|count| JsValue::from_f64(count as f64)) // Convert usize to JS number
+                .map_err(prolly_error_to_jsvalue)
+        };
+
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
 }
 
 
@@ -392,7 +443,7 @@ mod tests {
             } else {
                  js_val.dyn_into::<T>().map_err(|original_val| JsValue::from_str(&format!("Failed to cast JsValue: {:?}", original_val)))
             }
-        })
+        })?
     }
      async fn js_promise_to_option_uint8array(promise: Promise) -> std::result::Result<Option<Vec<u8>>, JsValue> {
         match JsFuture::from(promise).await {
@@ -425,6 +476,10 @@ mod tests {
             }
             Err(e) => Err(e),
         }
+    }
+    async fn js_promise_to_f64(promise: Promise) -> std::result::Result<f64, JsValue> {
+        let js_val = JsFuture::from(promise).await?;
+        js_val.as_f64().ok_or_else(|| JsValue::from_str("Result was not a number"))
     }
 
 
@@ -526,5 +581,83 @@ mod tests {
         let val_js_50 = js_promise_to_option_uint8array(loaded_tree.get(&key_js_50)).await.unwrap();
         assert_eq!(val_js_50, Some(b"value_050".to_vec()));
 
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_gc_simple_case() {
+        let tree = WasmProllyTree::new();
+
+        // State 1: Add item1
+        let key1 = Uint8Array::from(b"item1".as_ref());
+        let val1 = Uint8Array::from(b"value1".as_ref());
+        js_promise_to_future::<JsValue>(tree.insert(&key1, &val1)).await.unwrap();
+        let root_hash1_opt = js_promise_to_option_hash_uint8array(tree.get_root_hash()).await.unwrap();
+        assert!(root_hash1_opt.is_some(), "Root hash 1 should exist");
+        let root_hash1 = root_hash1_opt.unwrap();
+        let root_hash1_js = Uint8Array::from(&root_hash1[..]);
+
+        // State 2: Add item2 (tree now contains item1, item2)
+        let key2 = Uint8Array::from(b"item2".as_ref());
+        let val2 = Uint8Array::from(b"value2".as_ref());
+        js_promise_to_future::<JsValue>(tree.insert(&key2, &val2)).await.unwrap();
+        let root_hash2_opt = js_promise_to_option_hash_uint8array(tree.get_root_hash()).await.unwrap();
+        assert!(root_hash2_opt.is_some(), "Root hash 2 should exist");
+        let root_hash2 = root_hash2_opt.unwrap();
+        let root_hash2_js = Uint8Array::from(&root_hash2[..]);
+
+        assert_ne!(root_hash1, root_hash2, "Root hashes should differ");
+
+        let chunks_before_gc = js_promise_to_future::<JsMap>(tree.export_chunks()).await.unwrap();
+        let num_chunks_before_gc = chunks_before_gc.size();
+        // Expected chunks:
+        // R1 related: Leaf("item1"), Root1 (if item1 caused a split, or if it's the only node)
+        // R2 related: Potentially a new leaf for "item2", updated leaf for "item1" (if not split), new Root2
+        // Exact number is tricky without knowing split points, but should be > 1.
+        // For this simple case, if no splits:
+        // Leaf1(item1) -> chunkA
+        // Root1 is chunkA hash
+        // Leaf2(item1, item2) -> chunkB
+        // Root2 is chunkB hash
+        // So, 2 chunks if fully rewritten: chunkA, chunkB.
+        // If item1's node was updated to include item2: 1 chunk + old item1 node becomes garbage.
+
+        // Trigger GC, keeping only root_hash2 live
+        let live_roots_js_array = JsArray::new();
+        live_roots_js_array.push(&root_hash2_js.into()); // Pass R2 as live
+
+        let collected_count_promise = tree.trigger_gc(&live_roots_js_array);
+        let collected_count = js_promise_to_f64(collected_count_promise).await.unwrap() as usize;
+
+        // Assert that some chunks were collected (chunks unique to root_hash1)
+        // The exact number depends on tree structure & chunking.
+        // If R1 was a single leaf node, and R2 updated that leaf, then R1's chunk should be collected.
+        assert!(collected_count > 0, "Expected some chunks to be collected. Collected: {}", collected_count);
+
+        let chunks_after_gc = js_promise_to_future::<JsMap>(tree.export_chunks()).await.unwrap();
+        let num_chunks_after_gc = chunks_after_gc.size();
+
+        assert_eq!(num_chunks_before_gc - collected_count, num_chunks_after_gc, "Chunk count mismatch after GC");
+
+        // Verify that data for root_hash2 is still accessible
+        let retrieved_val1_after_gc = js_promise_to_option_uint8array(tree.get(&key1)).await.unwrap();
+        assert_eq!(retrieved_val1_after_gc, Some(val1.to_vec()), "Item1 should still be accessible after GC for R2");
+        let retrieved_val2_after_gc = js_promise_to_option_uint8array(tree.get(&key2)).await.unwrap();
+        assert_eq!(retrieved_val2_after_gc, Some(val2.to_vec()), "Item2 should still be accessible after GC for R2");
+
+        // Attempt to load tree with old root_hash1 should fail or yield incomplete data
+        // as its chunks might have been GC'd. This requires a fresh load.
+        let fresh_store_after_gc = InMemoryStore::from_js_map(&chunks_after_gc).unwrap();
+        let tree_loaded_with_r1_attempt = ProllyTree::from_root_hash(root_hash1, Arc::new(fresh_store_after_gc), TreeConfig::default()).await;
+        
+        // It's expected that loading from root_hash1 might fail if its unique chunks were collected.
+        assert!(tree_loaded_with_r1_attempt.is_err(), "Loading from old root_hash1 should fail after GC if its chunks were collected.");
+        if let Err(ProllyError::ChunkNotFound(_)) = tree_loaded_with_r1_attempt {
+            // This is the expected error if a chunk for R1 was GC'd
+        } else if tree_loaded_with_r1_attempt.is_ok() {
+             // If it loads, it means R1 was an ancestor of R2 or shared all chunks.
+             // We'd need to check if all chunks for R1 are present in chunks_after_gc
+             // This scenario is fine if R1's chunks were also R2's chunks.
+             // The key is that *uniquely R1* chunks are gone.
+        }
     }
 }

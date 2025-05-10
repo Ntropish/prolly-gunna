@@ -4,7 +4,7 @@
 use blake3::Hasher;
 use crate::common::Hash; // Use Hash from common module
 use crate::node::definition::Node; // Use the new Node definition
-use crate::error::{Result, ProllyError}; // Use our custom Result and Error
+use crate::error::Result; // Use our custom Result and Error
 
 /// Computes a Blake3 hash for a slice of bytes.
 pub fn hash_bytes(bytes: &[u8]) -> Hash {
