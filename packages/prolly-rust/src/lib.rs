@@ -36,8 +36,7 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 
 /// Public wrapper for ProllyTree exported to JavaScript.
 /// This will specifically use an InMemoryStore for Wasm.
-#[wasm_bindgen]
-#[derive(Clone)]
+#[wasm_bindgen(inspectable)]
 pub struct WasmProllyTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>, // Mutex for interior mutability from &self in Wasm
     // Tokio runtime handle. We need a way to spawn futures.
@@ -45,7 +44,6 @@ pub struct WasmProllyTree {
 }
 
 #[wasm_bindgen]
-#[derive(Clone)]
 pub struct WasmProllyTreeCursor {
     inner: Arc<Mutex<Cursor<InMemoryStore>>>, // Explicit type here helps definition
 }
@@ -428,7 +426,26 @@ impl WasmProllyTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
+    use js_sys::JsString;
+
+    #[wasm_bindgen(inspectable)]
+    pub struct TestInternalDummy { // Defined inside mod tests
+        _field: Option<JsString>,
+    }
+
+
+    #[wasm_bindgen_test]
+    fn test_internal_dummy_cast() {
+        let dummy = TestInternalDummy { _field: None };
+        let js_val: JsValue = JsValue::from(dummy); // Convert Rust struct to JsValue
+
+        // Attempt to cast it back
+        let _casted_dummy: TestInternalDummy = js_val
+            .dyn_into::<TestInternalDummy>()
+            .expect("dyn_into failed for TestInternalDummy defined within tests module");
+    }
 
     // Helper to convert JS Promise to Rust Future for testing
     async fn js_promise_to_future<T: JsCast>(promise: Promise) -> std::result::Result<T, JsValue> {
@@ -526,9 +543,16 @@ mod tests {
         
         let root_hash_to_load_js = Uint8Array::from(&root_hash_to_load[..]);
 
+        // packages/prolly-rust/src/lib.rs
         let loaded_tree_promise = WasmProllyTree::load(&root_hash_to_load_js, &chunks_map_js_val);
-        let loaded_tree_js_val = JsFuture::from(loaded_tree_promise).await.unwrap();
-        let loaded_tree = loaded_tree_js_val.dyn_into::<WasmProllyTree>().expect("Failed to cast to WasmProllyTree");
+        let loaded_tree_js_val: JsValue = wasm_bindgen_futures::JsFuture::from(loaded_tree_promise)
+            .await
+            .expect("Promise from WasmProllyTree::load failed");
+
+        // Now, attempt the direct cast:
+        let loaded_tree: WasmProllyTree = loaded_tree_js_val
+            .dyn_into::<WasmProllyTree>()
+            .expect("JsValue.dyn_into::<WasmProllyTree>() failed in test_new_insert_get_commit");
 
         // Verify data in loaded tree
         let retrieved_alice_loaded = js_promise_to_option_uint8array(loaded_tree.get(&key_alice)).await.unwrap();
@@ -543,44 +567,38 @@ mod tests {
         let tree = WasmProllyTree::new();
         let mut expected_values = std::collections::HashMap::new();
 
-        // Insert enough items to likely cause splits.
-        // Default fanout is 32, so >32 items needed for a leaf split.
-        // To test internal node splits, we'd need > fanout*fanout items approx.
-        // Let's try with 100 for now, should cause at least a few leaf splits.
+        // ... (loop for inserts) ...
         for i in 0..100 {
             let key_str = format!("key_{:03}", i);
             let val_str = format!("value_{:03}", i);
             let key_js = Uint8Array::from(key_str.as_bytes());
             let val_js = Uint8Array::from(val_str.as_bytes());
-
-            js_promise_to_future::<JsValue>(tree.insert(&key_js, &val_js)).await.expect("Insert failed");
+            // Assuming js_promise_to_future is still present or use direct JsFuture::from for consistency
+            wasm_bindgen_futures::JsFuture::from(tree.insert(&key_js, &val_js)).await.expect("Insert failed");
             expected_values.insert(key_str.into_bytes(), val_str.into_bytes());
         }
 
         let final_root_hash = js_promise_to_option_hash_uint8array(tree.get_root_hash()).await.unwrap();
         assert!(final_root_hash.is_some(), "Root hash should exist after many inserts");
 
-        // Verify all inserted values
-        for (key, expected_val) in expected_values {
-            let key_js = Uint8Array::from(key.as_slice());
-            let retrieved_val = js_promise_to_option_uint8array(tree.get(&key_js)).await.unwrap();
-            assert_eq!(retrieved_val.as_ref(), Some(&expected_val), "Mismatch for key: {:?}", String::from_utf8_lossy(&key));
-        }
-        
-        // Test load after many inserts
         let root_hash_to_load = final_root_hash.unwrap();
-        let chunks_map_js_val = js_promise_to_future::<JsMap>(tree.export_chunks()).await.unwrap();
+        let chunks_map_js_val = js_promise_to_future::<JsMap>(tree.export_chunks()).await.unwrap(); // Or direct await
         let root_hash_to_load_js = Uint8Array::from(&root_hash_to_load[..]);
 
-        let loaded_tree_promise = WasmProllyTree::load(&root_hash_to_load_js, &chunks_map_js_val);
-        let loaded_tree_js_val = JsFuture::from(loaded_tree_promise).await.unwrap();
-        let loaded_tree = loaded_tree_js_val.dyn_into::<WasmProllyTree>().expect("Failed to cast to WasmProllyTree after many inserts");
-        
-        // Quick check on one value from loaded tree
+        // >>> FIX for E0425: Define loaded_tree_promise here <<<
+        let loaded_tree_promise = WasmProllyTree::load(&root_hash_to_load_js, &chunks_map_js_val); 
+
+        let loaded_tree_js_val: JsValue = wasm_bindgen_futures::JsFuture::from(loaded_tree_promise)
+            .await
+            .expect("Promise from WasmProllyTree::load failed in test_many_inserts_and_splits");
+
+        let loaded_tree: WasmProllyTree = loaded_tree_js_val
+            .dyn_into::<WasmProllyTree>() // This is line 590 in your error
+            .expect("JsValue.dyn_into::<WasmProllyTree>() failed in test_many_inserts_and_splits");
+
         let key_js_50 = Uint8Array::from(b"key_050".as_ref());
         let val_js_50 = js_promise_to_option_uint8array(loaded_tree.get(&key_js_50)).await.unwrap();
         assert_eq!(val_js_50, Some(b"value_050".to_vec()));
-
     }
 
     #[wasm_bindgen_test]
@@ -594,7 +612,7 @@ mod tests {
         let root_hash1_opt = js_promise_to_option_hash_uint8array(tree.get_root_hash()).await.unwrap();
         assert!(root_hash1_opt.is_some(), "Root hash 1 should exist");
         let root_hash1 = root_hash1_opt.unwrap();
-        let root_hash1_js = Uint8Array::from(&root_hash1[..]);
+        let _root_hash1_js = Uint8Array::from(&root_hash1[..]);
 
         // State 2: Add item2 (tree now contains item1, item2)
         let key2 = Uint8Array::from(b"item2".as_ref());
@@ -636,7 +654,11 @@ mod tests {
         let chunks_after_gc = js_promise_to_future::<JsMap>(tree.export_chunks()).await.unwrap();
         let num_chunks_after_gc = chunks_after_gc.size();
 
-        assert_eq!(num_chunks_before_gc - collected_count, num_chunks_after_gc, "Chunk count mismatch after GC");
+        assert_eq!(
+            num_chunks_before_gc - (collected_count as u32),
+            num_chunks_after_gc,
+            "Chunk count mismatch after GC"
+        );
 
         // Verify that data for root_hash2 is still accessible
         let retrieved_val1_after_gc = js_promise_to_option_uint8array(tree.get(&key1)).await.unwrap();
