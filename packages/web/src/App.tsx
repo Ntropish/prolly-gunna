@@ -1,33 +1,41 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
 import "./App.css";
 
+import { WasmProllyTree } from "prolly-wasm";
+
+import { useAppStore } from "./useAppStore";
+
+import { Button } from "./components/ui/button";
+import { produce } from "immer";
+
+const encoder = new TextEncoder();
+const toU8 = (s: string): Uint8Array => encoder.encode(s);
+
+const toString = (u8: Uint8Array): string => {
+  const decoder = new TextDecoder();
+  return decoder.decode(u8);
+};
+
 function App() {
-  const [count, setCount] = useState(0);
+  const handleCreateTree = async () => {
+    const tree = new WasmProllyTree();
+    useAppStore.setState((state) => ({
+      trees: produce(state.trees, (draft) => {
+        draft.push(tree);
+      }),
+    }));
+  };
 
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      <div className="App">
+        <h1>Prolly Web</h1>
+        <Button onClick={handleCreateTree}>Create Tree</Button>
+        <ul>
+          {useAppStore((state) => state.trees).map((tree, index) => (
+            <li key={index}>Tree {index + 1}</li>
+          ))}
+        </ul>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
     </>
   );
 }

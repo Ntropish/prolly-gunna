@@ -37,6 +37,7 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 /// Public wrapper for ProllyTree exported to JavaScript.
 /// This will specifically use an InMemoryStore for Wasm.
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct WasmProllyTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>, // Mutex for interior mutability from &self in Wasm
     // Tokio runtime handle. We need a way to spawn futures.
@@ -44,6 +45,7 @@ pub struct WasmProllyTree {
 }
 
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct WasmProllyTreeCursor {
     inner: Arc<Mutex<Cursor<InMemoryStore>>>, // Explicit type here helps definition
 }

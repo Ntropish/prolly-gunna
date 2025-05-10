@@ -1,8 +1,5 @@
-// packages/prolly-tests/src/prolly.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
 
-// Adjust the relative path based on your test file's location
-// Might need to configure Vitest/TS paths if resolution fails.
 import { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
 
 // Helper to convert strings to Uint8Array for keys/values
