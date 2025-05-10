@@ -70,7 +70,7 @@ function App() {
           <TabsList className="grid w-full grid-cols-dynamic min-[400px]:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {trees.map((t) => (
               <TabsTrigger key={t.id} value={t.id}>
-                {t.id.substring(0, 10)}...
+                {t.id}
               </TabsTrigger>
             ))}
           </TabsList>
