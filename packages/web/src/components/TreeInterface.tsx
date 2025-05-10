@@ -143,15 +143,12 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
       const h1 = hexToUint8Array(diffHash1);
       const h2 = hexToUint8Array(diffHash2);
 
-      console.log("Diffing hashes:", h1, h2);
       const diffEntries = await treeState.tree.diffRoots(h1, h2);
-      console.log("Diff entries:", diffEntries);
       const formattedDiffs = diffEntries.map((entry: any) => ({
         key: toString(entry.key),
         left: entry.leftValue ? toString(entry.leftValue) : undefined,
         right: entry.rightValue ? toString(entry.rightValue) : undefined,
       }));
-      console.log("Diff result:", formattedDiffs);
       updateCurrentTreeState({ diffResult: formattedDiffs, lastError: null });
     } catch (e: any) {
       console.error("Diff error:", e);
