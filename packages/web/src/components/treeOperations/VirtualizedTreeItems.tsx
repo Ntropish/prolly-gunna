@@ -1,4 +1,4 @@
-import React, { use, useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 // Make sure this type import is correct for your WASM package
 import { type WasmProllyTree } from "prolly-wasm";
@@ -184,73 +184,80 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   }
 
   return (
-    <div
-      ref={parentRef}
-      style={{
-        height,
-        overflowY: "auto",
-        border: "1px solid hsl(var(--border))",
-        borderRadius: "var(--radius-md)",
-      }}
-      className="bg-muted/20 dark:bg-muted/10"
-    >
+    <>
       <div
+        ref={parentRef}
         style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          width: "100%",
-          position: "relative",
+          height,
+          overflowY: "auto",
+          border: "1px solid hsl(var(--border))",
+          borderRadius: "var(--radius-md)",
         }}
+        className="bg-muted/20 dark:bg-muted/10"
       >
-        {isFetchingRange &&
-          virtualItems.length > 0 &&
-          fetchedItems.size < totalItems && (
-            <div className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-background/80 backdrop-blur-sm p-2 rounded-md shadow-lg text-xs">
-              <Loader2 className="h-4 w-4 animate-spin inline-block mr-1" />{" "}
-              Loading more...
-            </div>
-          )}
-        {virtualItems.map((virtualRow) => {
-          const item = fetchedItems.get(virtualRow.index);
-          return (
-            <div
-              key={virtualRow.key}
-              data-index={virtualRow.index}
-              ref={rowVirtualizer.measureElement}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-                padding: "10px 12px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                borderBottom: "1px solid hsl(var(--border)/0.3)",
-              }}
-              className={
-                virtualRow.index % 2 === 0
-                  ? "bg-transparent"
-                  : "bg-muted/10 dark:bg-black/10"
-              }
-            >
-              {item ? (
-                <>
-                  <div className="flex flex-row items-center justify-between gap-4">
-                    <div className="flex-1 text-right">{item.key}</div>
-                    <div className="flex-1 text-left">{item.value}</div>
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {isFetchingRange &&
+            virtualItems.length > 0 &&
+            fetchedItems.size < totalItems && (
+              <div className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-background/80 backdrop-blur-sm p-2 rounded-md shadow-lg text-xs">
+                <Loader2 className="h-4 w-4 animate-spin inline-block mr-1" />{" "}
+                Loading more...
+              </div>
+            )}
+          {virtualItems.map((virtualRow) => {
+            const item = fetchedItems.get(virtualRow.index);
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  padding: "10px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  borderBottom: "1px solid hsl(var(--border)/0.3)",
+                }}
+                className={
+                  virtualRow.index % 2 === 0
+                    ? "bg-transparent"
+                    : "bg-muted/10 dark:bg-black/10"
+                }
+              >
+                {item ? (
+                  <>
+                    <div className="flex flex-row items-center justify-between gap-4">
+                      <div className="flex-1 text-right">{item.key}</div>
+                      <div className="flex-1 text-left">{item.value}</div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-muted-foreground animate-pulse">
+                    Loading item {virtualRow.index + 1}...
                   </div>
-                </>
-              ) : (
-                <div className="text-xs text-muted-foreground animate-pulse">
-                  Loading item {virtualRow.index + 1}...
-                </div>
-              )}
-            </div>
-          );
-        })}
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+      {totalItems > 0 && (
+        <div className=" backdrop-blur-sm p-2 rounded-md  text-xs">
+          Total items: {totalItems}
+        </div>
+      )}
+    </>
   );
 };
