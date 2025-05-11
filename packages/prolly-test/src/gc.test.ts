@@ -48,7 +48,7 @@ async function countChunks(tree: WasmProllyTree): Promise<number> {
 
 describe("WasmProllyTree Garbage Collection (GC)", () => {
   beforeAll(async () => {
-    await init();
+    // await init();
   });
   it("GC: should do nothing on an empty store", async () => {
     const tree = new WasmProllyTree();

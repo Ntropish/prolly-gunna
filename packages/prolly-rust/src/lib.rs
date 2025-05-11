@@ -477,6 +477,43 @@ impl WasmProllyTree {
         };
         wasm_bindgen_futures::future_to_promise(future)
     }
+
+    #[wasm_bindgen(js_name = queryItems)]
+    pub fn query_items(
+        &self,
+        start_key_js: Option<Uint8Array>,
+        end_key_js: Option<Uint8Array>,
+        key_prefix_js: Option<Uint8Array>,
+        offset_js: Option<usize>, // Use Option<usize> for undefined from JS
+        limit_js: Option<usize>,  // Use Option<usize> for undefined from JS
+        // value_filter_descriptor_js: Option<JsValue> // For future value filtering
+    ) -> Promise {
+        let start_key: Option<Key> = start_key_js.map(|arr| arr.to_vec());
+        let end_key: Option<Key> = end_key_js.map(|arr| arr.to_vec());
+        let key_prefix: Option<Key> = key_prefix_js.map(|arr| arr.to_vec());
+        let offset: usize = offset_js.unwrap_or(0); // Default offset to 0
+        let limit: Option<usize> = limit_js;       // Pass Option directly
+
+        let tree_clone = Arc::clone(&self.inner);
+
+        let future = async move {
+            let tree_guard = tree_clone.lock().await;
+            match tree_guard.query(start_key, end_key, key_prefix, offset, limit).await {
+                Ok(rust_results) => {
+                    let js_results_array = JsArray::new();
+                    for (k, v) in rust_results {
+                        let pair_array = JsArray::new_with_length(2);
+                        pair_array.set(0, Uint8Array::from(&k[..]).into());
+                        pair_array.set(1, Uint8Array::from(&v[..]).into());
+                        js_results_array.push(&pair_array.into());
+                    }
+                    Ok(JsValue::from(js_results_array))
+                }
+                Err(e) => Err(prolly_error_to_jsvalue(e)),
+            }
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
 }
 
 

@@ -779,4 +779,90 @@ impl<S: ChunkStore> ProllyTree<S> {
         collector.collect(&all_live_roots_vec).await
     }
 
+    pub async fn query(
+        &self,
+        start_key: Option<Key>,
+        end_key: Option<Key>,
+        key_prefix: Option<Key>,
+        offset: usize,
+        limit: Option<usize>, // Option<usize> allows for "no limit"
+        // Consider adding a filter predicate later if needed
+        // value_filter: Option<Box<dyn Fn(&Key, &Value) -> bool + Send + Sync>>,
+    ) -> Result<Vec<(Key, Value)>> {
+        let mut results: Vec<(Key, Value)> = Vec::new();
+        let mut items_collected: usize = 0;
+        let mut items_skipped: usize = 0;
+
+        // Initialize cursor: Start from a specific key, a prefix, or the beginning
+        let mut cursor = if let Some(ref sk) = start_key {
+            self.seek(sk).await?
+        } else if let Some(ref prefix) = key_prefix {
+            self.seek(prefix).await?
+        } else {
+            self.cursor_start().await?
+        };
+
+        // Skip initial items for offset
+        while items_skipped < offset {
+            match cursor.next().await? {
+                Some((current_key, _)) => {
+                    // If there's a key_prefix, and we've skipped past it, stop early
+                    if let Some(ref prefix) = key_prefix {
+                        if !current_key.starts_with(prefix) {
+                            return Ok(results); // Offset exhausted the prefix range
+                        }
+                    }
+                    // If there's an end_key, and we've skipped past it, stop early
+                    if let Some(ref ek) = end_key {
+                        if &current_key > ek {
+                            return Ok(results); // Offset exhausted the end_key range
+                        }
+                    }
+                    items_skipped += 1;
+                }
+                None => return Ok(results), // No more items to skip or collect
+            }
+        }
+
+        // Collect items up to the limit, applying filters
+        loop {
+            // Check limit
+            if let Some(l) = limit {
+                if items_collected >= l {
+                    break; // Limit reached
+                }
+            }
+
+            match cursor.next().await? {
+                Some((current_key, current_value)) => {
+                    // Key-prefix filter
+                    if let Some(ref prefix) = key_prefix {
+                        if !current_key.starts_with(prefix) {
+                            break; // Moved past the prefix
+                        }
+                    }
+
+                    // End-key filter (for range queries)
+                    if let Some(ref ek) = end_key {
+                        if &current_key > ek {
+                            break; // Moved past the end_key
+                        }
+                    }
+
+                    // TODO: Value-based filtering (see section below)
+                    // if let Some(ref vf) = value_filter {
+                    //     if !vf(&current_key, &current_value) {
+                    //         continue; // Skip this item, does not count towards limit
+                    //     }
+                    // }
+
+                    results.push((current_key, current_value));
+                    items_collected += 1;
+                }
+                None => break, // End of tree iteration
+            }
+        }
+        Ok(results)
+    }
+
 }

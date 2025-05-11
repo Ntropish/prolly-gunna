@@ -1,62 +1,11 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
 import init, { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
-
-// Helper to convert strings to Uint8Array for keys/values
-const encoder = new TextEncoder();
-const toU8 = (s: string): Uint8Array => encoder.encode(s);
-
-// Define DiffEntry type for clarity in tests
-type JsDiffEntry = {
-  key: Uint8Array;
-  leftValue?: Uint8Array;
-  rightValue?: Uint8Array;
-};
-
-const expectU8Eq = (
-  a: Uint8Array | undefined | null,
-  b: Uint8Array | undefined | null,
-  message?: string
-) => {
-  const context = message ? `: ${message}` : "";
-  if (a === undefined || a === null) {
-    expect(b, `Expected null${context}`).toBeNull();
-    return;
-  }
-  expect(b, `Expected Uint8Array${context}`).toBeInstanceOf(Uint8Array);
-  expect(Array.from(a), `Array comparison${context}`).toEqual(Array.from(b!));
-};
-
-// Helper to find a specific hash (as Uint8Array key) in the JS Map from exportChunks
-function findChunkData(
-  chunksMap: Map<Uint8Array, Uint8Array>,
-  targetHash: Uint8Array | null
-): Uint8Array | null {
-  if (!targetHash) return null;
-  for (const [hashKey, dataValue] of chunksMap.entries()) {
-    // Simple byte-by-byte comparison for hash keys
-    if (
-      hashKey.length === targetHash.length &&
-      hashKey.every((byte, i) => byte === targetHash[i])
-    ) {
-      return dataValue;
-    }
-  }
-  return null; // Hash not found
-}
-
-// Helper to format Uint8Array for easier logging reading
-function formatU8Array(arr: Uint8Array | null | undefined): string {
-  if (arr === null || arr === undefined) return "null";
-  // Convert to hex string for brevity
-  return `Uint8Array[${arr.length}](${Array.from(arr)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")})`;
-}
+import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
 
 beforeAll(async () => {
   // Initialize the Wasm module once before all tests
-  await init();
+  // await init();
 });
 
 describe("WasmProllyTree", () => {
