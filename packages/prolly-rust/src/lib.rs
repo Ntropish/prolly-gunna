@@ -105,39 +105,78 @@ impl WasmProllyTree {
         }
     }
 
-    /// Re-hydrates a tree from a root hash and a JavaScript `Map` of chunks.
+    /// Re-hydrates a tree from a root hash, a JavaScript `Map` of chunks,
+    /// and a JavaScript object representing the TreeConfig.
     /// The Map should have hash (Uint8Array) as keys and chunk_bytes (Uint8Array) as values.
+    /// The tree_config_js should be an object matching the TreeConfig struct.
     #[wasm_bindgen(js_name = "load")]
-    pub fn load(root_hash_js: &Uint8Array, chunks_js: &JsMap) -> Promise {
-        let mut root_h: Hash = [0u8; 32];
-        if root_hash_js.length() != 32 {
-            return Promise::reject(&JsValue::from_str("Root hash must be 32 bytes"));
-        }
-        root_hash_js.copy_to(&mut root_h);
+    pub fn load(
+        root_hash_js: Option<Uint8Array>, // Changed to Option<Uint8Array>
+        chunks_js: &JsMap,
+        tree_config_js: &JsValue, // tree_config_js is a JsValue representing the config object
+    ) -> Promise {
+        // Handle optional root_hash_js
+        let root_h_opt: Option<Hash> = match root_hash_js {
+            Some(rh_js) => {
+                if rh_js.length() != 32 {
+                    return Promise::reject(&JsValue::from_str("Root hash must be 32 bytes if provided"));
+                }
+                let mut h: Hash = [0u8; 32];
+                rh_js.copy_to(&mut h);
+                Some(h)
+            }
+            None => None, // Tree might be empty
+        };
 
         let store = match InMemoryStore::from_js_map(chunks_js) {
             Ok(s) => Arc::new(s),
             Err(e) => return Promise::reject(&e),
         };
-        
-        let config = TreeConfig::default();
 
-        // let tree_arc = Arc::new(tokio::sync::Mutex::new(ProllyTree { // Placeholder, from_root_hash will create the real one
-        //     root_hash: None,
-        //     store: store.clone(), // temporary store clone, will be replaced by from_root_hash's store
-        //     config: config.clone(),
-        // }));
+        // Deserialize tree_config_js into Rust TreeConfig struct
+        let config: TreeConfig = match serde_wasm_bindgen::from_value(tree_config_js.clone()) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                // If deserialization fails, you could fallback to default or reject.
+                // Rejecting is safer if the config is critical and might be malformed.
+                let error_msg = format!("Failed to deserialize TreeConfig: {}. Using default.", e);
+                // For now, let's log and use default, but rejecting might be better in production.
+                // If you want to reject:
+                // return Promise::reject(&JsValue::from_str(&format!("Invalid TreeConfig: {}", e)));
+                gloo_console::warn!(&error_msg); // Use gloo_console for wasm logging
+                TreeConfig::default()
+            }
+        };
         
-        // wasm_bindgen_futures::spawn_local requires 'static lifetime for the future.
-        // We need to clone Arcs to move them into the async block.
+        // Basic validation matching the panic in ProllyTree::new, now returning a rejectable Promise
+        if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 || config.target_fanout == 0 {
+            return Promise::reject(&JsValue::from_str("Invalid TreeConfig values (fanout)."));
+        }
+
+
         let future = async move {
-            ProllyTree::from_root_hash(root_h, store, config).await
+            // If root_h_opt is None, it means we are loading an empty tree state,
+            // but with a specific configuration and potentially some (unreferenced) chunks.
+            // ProllyTree::new directly handles creating an empty tree with a config.
+            // ProllyTree::from_root_hash expects a valid root_hash.
+            
+            let tree_result = if let Some(root_h) = root_h_opt {
+                 ProllyTree::from_root_hash(root_h, store, config).await
+            } else {
+                // No root hash, so create a new empty tree with the given store and config.
+                // The store will contain the chunks from chunks_js.
+                // If these chunks are unreferenced by any live root (like the None root here),
+                // they would be candidates for GC later if this tree remains empty or
+                // if new roots are established that don't reference them.
+                Ok(ProllyTree::new(store, config))
+            };
+
+            tree_result
                 .map(|tree| {
-                    // Create the WasmProllyTree instance
-                    let wasm_tree = WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) };
-                    // Convert it into JsValue using the .into() method, which is available
-                    // for #[wasm_bindgen] types.
-                    wasm_tree.into() // This converts WasmProllyTree to JsValue
+                    let wasm_tree = WasmProllyTree {
+                        inner: Arc::new(tokio::sync::Mutex::new(tree)),
+                    };
+                    wasm_tree.into()
                 })
                 .map_err(prolly_error_to_jsvalue)
         };
@@ -425,6 +464,19 @@ impl WasmProllyTree {
         wasm_bindgen_futures::future_to_promise(future)
     }
 
+    #[wasm_bindgen(js_name = "getTreeConfig")]
+    pub fn get_tree_config(&self) -> Promise { // Or return JsValue directly if simple enough
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            let tree = tree_clone.lock().await;
+            // Serialize tree.config to JsValue (e.g., using serde_json and then JsValue::from_serde)
+            match serde_wasm_bindgen::to_value(&tree.config) {
+                Ok(js_val) => Ok(js_val),
+                Err(e) => Err(JsValue::from_str(&format!("Failed to serialize config: {}", e))),
+            }
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
 }
 
 
