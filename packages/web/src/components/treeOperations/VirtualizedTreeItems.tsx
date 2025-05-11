@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-// Make sure this type import is correct for your WASM package
 import { type WasmProllyTree } from "prolly-wasm";
 import { u8ToString } from "@/lib/prollyUtils";
 import { Loader2 } from "lucide-react";
@@ -12,11 +11,10 @@ interface Item {
 }
 
 interface VirtualizedTreeItemsProps {
-  tree: WasmProllyTree; // The active WasmProllyTree instance
+  tree: WasmProllyTree;
   height?: string;
   itemHeight?: number;
-  currentRoot: string | null; // The current root of the tree
-  // fetchTotalCount: () => Promise<number>; // <<< REMOVE THIS LINE
+  currentRoot: string | null;
 }
 
 const processRawItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
