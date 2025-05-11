@@ -14,6 +14,7 @@ pub type Value = Vec<u8>;
 /// Configuration for the Prolly Tree.
 /// We'll add more to this as we develop (e.g., fanout, CDC params).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
 pub struct TreeConfig {
     /// The desired number of entries in a leaf node or children in an internal node.
     /// This influences when nodes split or merge.

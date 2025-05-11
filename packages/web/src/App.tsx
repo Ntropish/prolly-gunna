@@ -1,3 +1,4 @@
+// src/App.tsx
 import "./App.css";
 import React, { useState, useEffect, type ChangeEvent, useRef } from "react";
 import { WasmProllyTree } from "prolly-wasm";
@@ -13,7 +14,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
 import { TreeInterface } from "./components/TreeInterface";
-import { Loader2, FileUp, PlusCircle, XCircle } from "lucide-react";
+import {
+  Loader2,
+  FileUp,
+  PlusCircle,
+  XCircle,
+  TreeDeciduous,
+} from "lucide-react";
 import {
   FILE_SIGNATURE,
   FILE_VERSION,
@@ -22,14 +29,11 @@ import {
   u8ToHex,
   hexToU8,
   u8ToString,
-} from "./lib/prollyUtils";
-
+} from "@/lib/prollyUtils";
 import { CheckCircle } from "lucide-react";
 
 function App() {
-  const trees = useAppStore((state) => state.trees);
-  const addTree = useAppStore((state) => state.addTree);
-
+  const { trees, addTree } = useAppStore();
   const [activeTab, setActiveTab] = useState<string | undefined>(undefined);
   const [globalFeedback, setGlobalFeedback] = useState<{
     type: "success" | "error";
@@ -50,15 +54,44 @@ function App() {
     }
   }, [trees, activeTab]);
 
+  useEffect(() => {
+    if (globalFeedback) {
+      const timer = setTimeout(() => setGlobalFeedback(null), 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [globalFeedback]);
+
   const handleCreateTree = async () => {
     setIsCreatingTree(true);
     setGlobalFeedback(null);
-    const newTree = new WasmProllyTree(); // This is synchronous
-    const treeId = `tree-${Date.now()}`;
+    const newTree = new WasmProllyTree();
+    const treeId = `Tree-${Date.now().toString().slice(-5)}`;
     try {
       const rootHashU8 = await newTree.getRootHash();
-      const treeConfigJsValue = await newTree.getTreeConfig();
-      const treeConfig = treeConfigJsValue.into_serde<JsTreeConfigType>();
+      const treeConfigFromWasm = await newTree.getTreeConfig(); // Expect JS object if wasm-bindgen marshals it
+
+      console.log(
+        "DEBUG: Raw treeConfigFromWasm:",
+        JSON.stringify(treeConfigFromWasm, null, 2)
+      );
+
+      const treeConfig = treeConfigFromWasm as JsTreeConfigType; // Direct cast
+
+      if (!treeConfig || typeof treeConfig.targetFanout !== "number") {
+        console.error(
+          "DEBUG: Validation failed! treeConfig object:",
+          treeConfig,
+          "| typeof treeConfig:",
+          typeof treeConfig,
+          "| treeConfig.targetFanout:",
+          treeConfig?.targetFanout, // Optional chaining for safety
+          "| typeof treeConfig.targetFanout:",
+          typeof treeConfig?.targetFanout
+        );
+        throw new Error(
+          "Failed to obtain valid tree configuration from new Wasm tree."
+        );
+      }
 
       const newTreeState: TreeState = {
         id: treeId,
@@ -66,7 +99,7 @@ function App() {
         rootHash: u8ToHex(rootHashU8),
         treeConfig: treeConfig,
         lastError: null,
-        lastValue: null, // Cleared to avoid showing old tree's last value
+        lastValue: null,
         items: [],
         chunks: [],
         diffResult: [],
@@ -75,14 +108,14 @@ function App() {
       addTree(newTreeState);
       setGlobalFeedback({
         type: "success",
-        message: `Tree "${treeId.substring(0, 10)}..." created successfully.`,
+        message: `Tree "${treeId}" created.`,
       });
-      setActiveTab(treeId); // Switch to the newly created tree
+      setActiveTab(treeId);
     } catch (e: any) {
       console.error("Failed to initialize tree:", e);
       setGlobalFeedback({
         type: "error",
-        message: `Failed to create tree: ${e.message}`,
+        message: `Failed to create tree: ${e.message || "Unknown error"}`,
       });
     } finally {
       setIsCreatingTree(false);
@@ -103,7 +136,7 @@ function App() {
       );
       offset += FILE_SIGNATURE.length;
       if (signature !== FILE_SIGNATURE)
-        throw new Error("Invalid file signature.");
+        throw new Error("Invalid file signature. Expected 'PRLYTRE1'.");
 
       const version = view.getUint8(offset);
       offset += 1;
@@ -115,10 +148,12 @@ function App() {
       const metadataTag = view.getUint8(offset);
       offset += 1;
       if (metadataTag !== TAG_METADATA)
-        throw new Error("Metadata block not found.");
+        throw new Error("Metadata block tag not found or out of order.");
 
       const metadataLength = view.getUint32(offset, true);
       offset += 4;
+      if (offset + metadataLength > fileBytes.byteLength)
+        throw new Error("Metadata length exceeds file size.");
       const metadataJsonBytes = fileBytes.slice(
         offset,
         offset + metadataLength
@@ -132,11 +167,19 @@ function App() {
         chunkCount: number;
       };
 
+      if (
+        typeof loadedMetadata.chunkCount !== "number" ||
+        !loadedMetadata.treeConfig
+      ) {
+        throw new Error(
+          "File metadata is incomplete or malformed (missing chunkCount or treeConfig)."
+        );
+      }
+
       const rootHashU8 = loadedMetadata.rootHash
         ? hexToU8(loadedMetadata.rootHash)
         : null;
       if (loadedMetadata.rootHash && !rootHashU8) {
-        // Check if conversion failed for a non-null hash
         throw new Error(
           `Invalid rootHash hex string in file: ${loadedMetadata.rootHash}`
         );
@@ -144,8 +187,8 @@ function App() {
 
       const loadedChunksMap = new Map<Uint8Array, Uint8Array>();
       for (let i = 0; i < loadedMetadata.chunkCount; i++) {
-        if (offset + 1 > fileBytes.length)
-          throw new Error(`Unexpected EOF before chunk ${i} tag.`);
+        if (offset + 1 > fileBytes.byteLength)
+          throw new Error(`EOF before chunk ${i} tag.`);
         const chunkTag = view.getUint8(offset);
         offset += 1;
         if (chunkTag !== TAG_CHUNK)
@@ -153,30 +196,34 @@ function App() {
             `Expected chunk tag for chunk ${i}, got ${chunkTag}.`
           );
 
-        if (offset + 4 > fileBytes.length)
-          throw new Error(`Unexpected EOF before chunk ${i} length.`);
+        if (offset + 4 > fileBytes.byteLength)
+          throw new Error(`EOF before chunk ${i} length.`);
         const chunkEntryLength = view.getUint32(offset, true);
         offset += 4;
+        if (chunkEntryLength < 32)
+          throw new Error(`Invalid chunk entry length for chunk ${i}.`);
 
-        if (offset + 32 > fileBytes.length)
-          throw new Error(`Unexpected EOF before chunk ${i} hash.`);
+        if (offset + 32 > fileBytes.byteLength)
+          throw new Error(`EOF before chunk ${i} hash.`);
         const chunkHashBytes = fileBytes.slice(offset, offset + 32);
         offset += 32;
 
         const chunkDataLength = chunkEntryLength - 32;
-        if (offset + chunkDataLength > fileBytes.length)
+        if (offset + chunkDataLength > fileBytes.byteLength)
           throw new Error(
-            `Unexpected EOF before chunk ${i} data (expected ${chunkDataLength} bytes).`
+            `EOF for chunk ${i} data (expected ${chunkDataLength} bytes, found ${
+              fileBytes.byteLength - offset
+            }).`
           );
         const chunkDataBytes = fileBytes.slice(
           offset,
           offset + chunkDataLength
         );
         offset += chunkDataLength;
-
         loadedChunksMap.set(chunkHashBytes, chunkDataBytes);
       }
 
+      // Pass the JS object `loadedMetadata.treeConfig` directly.
       const newLoadedTreeInstance = await WasmProllyTree.load(
         rootHashU8,
         loadedChunksMap,
@@ -185,7 +232,7 @@ function App() {
 
       const treeId = `loaded-${file.name
         .replace(/[^a-z0-9_.-]/gi, "_")
-        .substring(0, 20)}-${Date.now()}`;
+        .substring(0, 15)}-${Date.now().toString().slice(-4)}`;
       const newTreeState: TreeState = {
         id: treeId,
         tree: newLoadedTreeInstance,
@@ -203,9 +250,7 @@ function App() {
       addTree(newTreeState);
       setGlobalFeedback({
         type: "success",
-        message: `Tree "${
-          file.name
-        }" loaded successfully as "${treeId.substring(0, 10)}...".`,
+        message: `Tree "${file.name}" loaded as "${treeId}".`,
       });
       setActiveTab(treeId);
     } catch (e: any) {
@@ -228,27 +273,39 @@ function App() {
   };
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      <header className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-4 border-b">
-        <h1 className="text-3xl font-bold tracking-tight">Prolly Web UI</h1>
-        <div className="flex gap-2 flex-wrap justify-center">
-          <Button onClick={handleCreateTree} disabled={isCreatingTree}>
+    <div className="container mx-auto p-4 sm:p-6 space-y-6 min-h-screen">
+      <header className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-6 border-b">
+        <div className="flex items-center gap-2">
+          <TreeDeciduous className="h-8 w-8 text-primary" />
+          <h1 className="text-3xl font-bold tracking-tight">Prolly Tree Web</h1>
+        </div>
+        <div className="flex gap-2 flex-wrap justify-center sm:justify-end">
+          <Button
+            onClick={handleCreateTree}
+            disabled={isCreatingTree}
+            size="sm"
+          >
             {isCreatingTree ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <PlusCircle className="mr-2 h-4 w-4" />
             )}
-            Create New Tree
+            New Tree
           </Button>
           <Label htmlFor="file-upload" className="cursor-pointer">
-            <Button asChild variant="outline" disabled={isLoadingFile}>
+            <Button
+              asChild
+              variant="outline"
+              disabled={isLoadingFile}
+              size="sm"
+            >
               <span>
                 {isLoadingFile ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <FileUp className="mr-2 h-4 w-4" />
                 )}
-                Load Tree from File
+                Load Tree
               </span>
             </Button>
           </Label>
@@ -269,7 +326,7 @@ function App() {
           variant={
             globalFeedback.type === "success" ? "default" : "destructive"
           }
-          className="my-4"
+          className="my-4 animate-in fade-in-0 slide-in-from-top-5 duration-500"
         >
           {globalFeedback.type === "success" ? (
             <CheckCircle className="h-4 w-4" />
@@ -277,34 +334,35 @@ function App() {
             <XCircle className="h-4 w-4" />
           )}
           <AlertTitle>
-            {globalFeedback.type === "success"
-              ? "Operation Successful"
-              : "Operation Failed"}
+            {globalFeedback.type === "success" ? "Success" : "Error"}
           </AlertTitle>
           <AlertDescription>{globalFeedback.message}</AlertDescription>
         </Alert>
       )}
 
       {trees.length === 0 && !isLoadingFile && !isCreatingTree ? (
-        <div className="text-center py-10">
-          <h2 className="text-xl font-semibold text-muted-foreground">
-            No Trees Yet
+        <div className="text-center py-12">
+          <TreeDeciduous className="mx-auto h-16 w-16 text-muted-foreground/50" />
+          <h2 className="mt-4 text-xl font-semibold text-muted-foreground">
+            No Trees Available
           </h2>
           <p className="text-muted-foreground mt-2">
-            Create a new tree or load one from a file to get started.
+            Create a new tree or load one from a file to begin.
           </p>
         </div>
       ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <ScrollArea className="pb-2">
+          <ScrollArea className="pb-2 -mx-1">
+            {" "}
+            {/* Negative margin to align with typical tab list padding */}
             <TabsList className="inline-flex h-auto bg-muted p-1 rounded-lg">
               {trees.map((t) => (
                 <TabsTrigger
                   key={t.id}
                   value={t.id}
-                  className="text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+                  className="text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm px-3 py-1.5"
                 >
-                  {t.id.length > 20 ? `${t.id.substring(0, 20)}...` : t.id}
+                  {t.id.length > 18 ? `${t.id.substring(0, 18)}...` : t.id}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -313,10 +371,10 @@ function App() {
             <TabsContent
               key={treeState.id}
               value={treeState.id}
-              className="mt-0"
+              className="mt-4 rounded-lg "
             >
               {" "}
-              {/* Remove mt-4 if TabsList has pb-2 */}
+              {/* Card styling moved to TreeInterface */}
               <TreeInterface treeState={treeState} />
             </TabsContent>
           ))}
@@ -325,5 +383,4 @@ function App() {
     </div>
   );
 }
-
 export default App;
