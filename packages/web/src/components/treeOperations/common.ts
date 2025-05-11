@@ -21,9 +21,7 @@ export interface OperationProps {
   // For simplicity now, passing specific handlers.
   setLoading: (op: TreeOperation, isLoading: boolean) => void;
   loadingStates: Record<TreeOperation, boolean>;
-  setFeedback: (
-    feedback: { type: "success" | "error"; message: string } | null
-  ) => void;
+
   refreshRootHash: (showFeedback?: boolean) => Promise<void>;
   updateTreeStoreState: (
     updates: Partial<Omit<TreeState, "id" | "tree">>

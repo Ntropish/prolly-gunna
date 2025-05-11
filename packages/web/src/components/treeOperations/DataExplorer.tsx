@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, List, PackageOpen } from "lucide-react";
 import { WasmProllyTreeCursor } from "prolly-wasm";
 import { u8ToString, u8ToHex } from "@/lib/prollyUtils";
+import { toast } from "sonner";
 
 interface DataExplorerProps extends OperationProps {
   items: TreeState["items"];
@@ -17,14 +18,12 @@ export const DataExplorerComponent: React.FC<DataExplorerProps> = ({
   tree,
   setLoading,
   loadingStates,
-  setFeedback,
   updateTreeStoreState,
   items,
   chunks,
 }) => {
   const handleListItems = async () => {
     setLoading("list", true);
-    setFeedback(null);
     try {
       const fetchedItems: { key: string; value: string }[] = [];
       const cursor: WasmProllyTreeCursor = await tree.cursorStart();
@@ -40,13 +39,11 @@ export const DataExplorerComponent: React.FC<DataExplorerProps> = ({
         }
       }
       updateTreeStoreState({ items: fetchedItems });
-      setFeedback({
-        type: "success",
-        message: `Listed ${fetchedItems.length} items.`,
-      });
+
+      toast.success(`Listed ${fetchedItems.length} items.`);
     } catch (e: any) {
       updateTreeStoreState({ items: [] });
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("list", false);
     }
@@ -54,7 +51,6 @@ export const DataExplorerComponent: React.FC<DataExplorerProps> = ({
 
   const handleExportChunks = async () => {
     setLoading("exportChunks", true);
-    setFeedback(null);
     try {
       const chunkMap = await tree.exportChunks();
       const exportedChunks: { hash: string; size: number }[] = [];
@@ -62,13 +58,11 @@ export const DataExplorerComponent: React.FC<DataExplorerProps> = ({
         exportedChunks.push({ hash: u8ToHex(key), size: value.length });
       });
       updateTreeStoreState({ chunks: exportedChunks });
-      setFeedback({
-        type: "success",
-        message: `Exported ${exportedChunks.length} chunks.`,
-      });
+
+      toast.success(`Exported ${exportedChunks.length} chunks.`);
     } catch (e: any) {
       updateTreeStoreState({ chunks: [] });
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("exportChunks", false);
     }

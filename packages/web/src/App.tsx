@@ -1,4 +1,3 @@
-// src/App.tsx
 import "./App.css";
 import React, { useState, useEffect, type ChangeEvent, useRef } from "react";
 import { WasmProllyTree } from "prolly-wasm";
@@ -12,7 +11,6 @@ import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
-import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
 import { TreeInterface } from "./components/TreeInterface";
 import {
   Loader2,
@@ -31,6 +29,7 @@ import {
   u8ToString,
 } from "@/lib/prollyUtils";
 import { CheckCircle } from "lucide-react";
+import { Toaster, toast } from "sonner";
 
 function App() {
   const { trees, addTree } = useAppStore();
@@ -106,17 +105,11 @@ function App() {
         gcCollectedCount: null,
       };
       addTree(newTreeState);
-      setGlobalFeedback({
-        type: "success",
-        message: `Tree "${treeId}" created.`,
-      });
+      toast.success(`Tree "${treeId}" created successfully.`);
       setActiveTab(treeId);
     } catch (e: any) {
       console.error("Failed to initialize tree:", e);
-      setGlobalFeedback({
-        type: "error",
-        message: `Failed to create tree: ${e.message || "Unknown error"}`,
-      });
+      toast.error(`Failed to create tree: ${e.message || "Unknown error"}`);
     } finally {
       setIsCreatingTree(false);
     }
@@ -248,17 +241,11 @@ function App() {
         gcCollectedCount: null,
       };
       addTree(newTreeState);
-      setGlobalFeedback({
-        type: "success",
-        message: `Tree "${file.name}" loaded as "${treeId}".`,
-      });
+      toast.success(`Tree "${file.name}" loaded as "${treeId}".`);
       setActiveTab(treeId);
     } catch (e: any) {
       console.error("Failed to load tree from file:", e);
-      setGlobalFeedback({
-        type: "error",
-        message: `Load failed: ${e.message || "Unknown error"}`,
-      });
+      toast.error(`Load failed: ${e.message || "Unknown error"}`);
     } finally {
       setIsLoadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -274,6 +261,7 @@ function App() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-6 min-h-screen">
+      <Toaster richColors />
       <header className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-6 border-b">
         <div className="flex items-center gap-2">
           <TreeDeciduous className="h-8 w-8 text-primary" />
@@ -321,7 +309,7 @@ function App() {
         </div>
       </header>
 
-      {globalFeedback && (
+      {/* {globalFeedback && (
         <Alert
           variant={
             globalFeedback.type === "success" ? "default" : "destructive"
@@ -338,7 +326,7 @@ function App() {
           </AlertTitle>
           <AlertDescription>{globalFeedback.message}</AlertDescription>
         </Alert>
-      )}
+      )} */}
 
       {trees.length === 0 && !isLoadingFile && !isCreatingTree ? (
         <div className="text-center py-12">

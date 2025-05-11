@@ -39,6 +39,8 @@ import {
   type TreeOperation,
 } from "./treeOperations/common";
 
+import { toast } from "sonner";
+
 interface TreeInterfaceProps {
   treeState: TreeState;
 }
@@ -59,10 +61,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     save: false,
     refreshHash: false,
   });
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
 
   const setLoading = (op: TreeOperation, isLoading: boolean) => {
     setLoadingStates((prev) => ({ ...prev, [op]: isLoading }));
@@ -83,28 +81,29 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
       });
 
       if (feedbackMsg) {
-        setFeedback(feedbackMsg);
+        toast[feedbackMsg.type](feedbackMsg.message, {
+          description: feedbackMsg.message,
+          duration: 6000,
+        });
       } else if (updates.lastError && !feedbackMsg) {
-        setFeedback({ type: "error", message: updates.lastError });
+        toast.error(updates.lastError, {
+          description: updates.lastError,
+          duration: 6000,
+        });
       } else if (updates.lastValue && !feedbackMsg) {
-        setFeedback({ type: "success", message: updates.lastValue });
+        toast.success(updates.lastValue, {
+          description: updates.lastValue,
+          duration: 6000,
+        });
       }
       // If no explicit feedbackMsg, and no lastError/lastValue in updates, feedback could persist or be cleared by timer.
     },
     [treeState.id, updateTreeState]
   );
 
-  useEffect(() => {
-    if (feedback) {
-      const timer = setTimeout(() => setFeedback(null), 6000); // Clear after 6 seconds
-      return () => clearTimeout(timer);
-    }
-  }, [feedback]);
-
   const refreshRootHashDisplay = useCallback(
     async (showSuccessFeedback = false) => {
       setLoading("refreshHash", true);
-      if (!showSuccessFeedback) setFeedback(null); // Clear previous feedback unless we're showing new success
       try {
         const rh = await treeState.tree.getRootHash();
         const newRootHash = u8ToHex(rh);
@@ -129,7 +128,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
 
   const handleSaveTreeToFile = async () => {
     setLoading("save", true);
-    setFeedback(null);
     try {
       const rootHashU8 = await treeState.tree.getRootHash();
       const treeConfigFromWasm = await treeState.tree.getTreeConfig(); // Expect JS object if Wasm uses to_value
@@ -189,10 +187,16 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
       }
 
       triggerBrowserDownload(buffer, generateTreeFilename(treeState.id));
-      setFeedback({ type: "success", message: "Tree save to file initiated." });
+      toast.success("Tree save to file initiated.", {
+        description: "Tree save to file initiated.",
+        duration: 6000,
+      });
     } catch (e: any) {
       console.error("Save tree error:", e);
-      setFeedback({ type: "error", message: `Save failed: ${e.message}` });
+      toast.error(`Save failed: ${e.message}`, {
+        description: `Save failed: ${e.message}`,
+        duration: 6000,
+      });
     } finally {
       setLoading("save", false);
     }
@@ -223,7 +227,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     treeId: treeState.id,
     setLoading,
     loadingStates,
-    setFeedback, // Pass setFeedback directly
     refreshRootHash: refreshRootHashDisplay,
     updateTreeStoreState: updateTreeStoreAndLocalFeedback, // Pass the new centralized update function
   };
@@ -255,7 +258,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
-        {feedback && (
+        {/* {feedback && (
           <Alert
             variant={feedback.type === "success" ? "default" : "destructive"}
             className="mb-4"
@@ -270,7 +273,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             </AlertTitle>
             <AlertDescription>{feedback.message}</AlertDescription>
           </Alert>
-        )}
+        )} */}
 
         <OperationSection title="Basic Operations" defaultOpen={true}>
           <BasicOpsComponent {...commonOpProps} />

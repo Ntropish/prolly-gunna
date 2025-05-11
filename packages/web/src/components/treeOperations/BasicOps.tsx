@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, CheckCircle, Search, Trash2 } from "lucide-react";
 import { toU8, u8ToString } from "@/lib/prollyUtils";
+import { toast } from "sonner";
 
 export const BasicOpsComponent: React.FC<OperationProps> = ({
   tree,
   setLoading,
   loadingStates,
-  setFeedback,
   refreshRootHash,
   updateTreeStoreState,
 }) => {
@@ -21,19 +21,18 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
 
   const handleInsert = async () => {
     if (!insertKey) {
-      setFeedback({ type: "error", message: "Insert key cannot be empty." });
+      toast.error("Insert key cannot be empty.");
       return;
     }
     setLoading("insert", true);
-    setFeedback(null);
     try {
       await tree.insert(toU8(insertKey), toU8(insertValue));
       await refreshRootHash(); // Refreshes root hash in global store
       setInsertKey("");
       setInsertValue("");
-      setFeedback({ type: "success", message: "Insert successful." });
+      toast.success("Insert successful.");
     } catch (e: any) {
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("insert", false);
     }
@@ -41,26 +40,24 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
 
   const handleGet = async () => {
     if (!getKey) {
-      setFeedback({ type: "error", message: "Get key cannot be empty." });
+      //   setFeedback({ type: "error", message: "Get key cannot be empty." });
+      toast.error("Get key cannot be empty.");
       return;
     }
     setLoading("get", true);
-    setFeedback(null);
     try {
       const value = await tree.get(toU8(getKey));
       // Update a more general display area in TreeInterface rather than local lastValue
       updateTreeStoreState({
         lastValue: value ? u8ToString(value) : "null (not found)",
       });
-      setFeedback({
-        type: "success",
-        message: `Value for "${getKey}": ${
-          value ? u8ToString(value) : "not found"
-        }`,
-      });
+
+      toast.success(
+        `Value for "${getKey}": ${value ? u8ToString(value) : "not found"}`
+      );
       setGetKey("");
     } catch (e: any) {
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("get", false);
     }
@@ -68,23 +65,19 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
 
   const handleDelete = async () => {
     if (!deleteKey) {
-      setFeedback({ type: "error", message: "Delete key cannot be empty." });
+      toast.error("Delete key cannot be empty.");
       return;
     }
     setLoading("delete", true);
-    setFeedback(null);
     try {
       const deleted = await tree.delete(toU8(deleteKey));
       await refreshRootHash();
-      setFeedback({
-        type: "success",
-        message: deleted
-          ? "Delete successful."
-          : "Delete failed (key not found).",
-      });
+      toast.success(
+        deleted ? "Delete successful." : "Delete failed (key not found)."
+      );
       setDeleteKey("");
     } catch (e: any) {
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("delete", false);
     }
