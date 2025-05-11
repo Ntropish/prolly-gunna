@@ -514,6 +514,19 @@ impl WasmProllyTree {
         };
         wasm_bindgen_futures::future_to_promise(future)
     }
+
+    #[wasm_bindgen(js_name = countAllItems)]
+    pub fn count_all_items(&self) -> Promise {
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            let tree_guard = tree_clone.lock().await; // Acquire read lock
+            match tree_guard.count_all_items().await {
+            Ok(count) => Ok(JsValue::from_f64(count as f64)), // JS numbers are f64
+            Err(e) => Err(prolly_error_to_jsvalue(e)),
+            }
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
 }
 
 

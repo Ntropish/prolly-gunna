@@ -40,6 +40,7 @@ import {
 } from "./treeOperations/common";
 
 import { toast } from "sonner";
+import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
 
 interface TreeInterfaceProps {
   treeState: TreeState;
@@ -258,25 +259,21 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
-        {/* {feedback && (
-          <Alert
-            variant={feedback.type === "success" ? "default" : "destructive"}
-            className="mb-4"
-          >
-            {feedback.type === "success" ? (
-              <CheckCircle className="h-4 w-4" />
-            ) : (
-              <XCircle className="h-4 w-4" />
-            )}
-            <AlertTitle>
-              {feedback.type === "success" ? "Success" : "Error"}
-            </AlertTitle>
-            <AlertDescription>{feedback.message}</AlertDescription>
-          </Alert>
-        )} */}
-
         <OperationSection title="Basic Operations" defaultOpen={true}>
           <BasicOpsComponent {...commonOpProps} />
+        </OperationSection>
+
+        <OperationSection title="Scan" defaultOpen={true}>
+          {treeState.tree ? ( // Ensure tree is loaded
+            <VirtualizedTreeItems
+              currentRoot={treeState.rootHash}
+              tree={treeState.tree as WasmProllyTree} // Cast if WasmProllyTree from store is different
+              height="400px"
+              itemHeight={65} // Slightly taller for better readability
+            />
+          ) : (
+            <p>Tree instance not available.</p>
+          )}
         </OperationSection>
 
         <OperationSection title="Data & Chunks Exploration">

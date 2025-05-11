@@ -39,7 +39,7 @@ pub struct InternalEntry {
     /// A common strategy: this key is the *largest key* in the subtree pointed to by `child_hash`.
     pub boundary_key: Key,
     pub child_hash: Hash,
-    // pub num_items_subtree: u64, // Optional: for faster count queries or rebalancing heuristics
+    pub num_items_subtree: u64, 
     // pub total_size_subtree: u64, // Optional: for size-based balancing
 }
 

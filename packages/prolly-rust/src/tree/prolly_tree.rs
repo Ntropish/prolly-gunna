@@ -35,7 +35,8 @@ pub struct ProllyTree<S: ChunkStore> {
 struct ProcessedNodeUpdate { 
     new_hash: Hash,
     new_boundary_key: Key, 
-    split_info: Option<(Key, Hash)>, 
+    new_item_count: u64,
+    split_info: Option<(Key, Hash, u64)>, 
 }
 
 /// Represents the result of a deletion operation down the tree.
@@ -190,6 +191,25 @@ impl<S: ChunkStore> ProllyTree<S> {
         })
     }
 
+
+    pub async fn count_all_items(&self) -> Result<u64> {
+        if self.root_hash.is_none() {
+            return Ok(0);
+        }
+        let root_node_hash = self.root_hash.unwrap();
+        // We need to load the root node to determine its type and get counts.
+        // This assumes load_node is efficient and doesn't load the entire tree.
+        let root_node = self.load_node(&root_node_hash).await?;
+
+        match root_node {
+            Node::Leaf { entries, .. } => Ok(entries.len() as u64),
+            Node::Internal { children, .. } => {
+                // The total count is the sum of num_items_subtree of its direct children.
+                Ok(children.iter().map(|c| c.num_items_subtree).sum())
+            }
+        }
+    }
+
      /// Prepares ValueRepr based on value size and TreeConfig.
     /// Chunks large values using FastCDC.
     async fn prepare_value_repr(&self, value: Value) -> Result<ValueRepr> {
@@ -252,23 +272,27 @@ impl<S: ChunkStore> ProllyTree<S> {
         let root_node = self.load_node(&current_root_hash).await?;
         let update_result = self.recursive_insert_impl(current_root_hash, key, value_repr, root_node.level()).await?;
 
-        self.root_hash = Some(update_result.new_hash); 
+        self.root_hash = Some(update_result.new_hash); // This is the hash of the (potentially new) left child of the new root, OR the updated old root
 
-        if let Some((split_boundary_key, new_sibling_hash)) = update_result.split_info {
-            let old_root_as_left_child_boundary = update_result.new_boundary_key; 
-            
+        if let Some((split_boundary_key, new_sibling_hash, new_sibling_item_count)) = update_result.split_info {
+            // The old root (or its left part if it split) is update_result.new_hash, with item count update_result.new_item_count
+            let old_root_as_left_child_boundary = update_result.new_boundary_key;
+            let old_root_as_left_child_item_count = update_result.new_item_count;
+
             let new_root_children = vec![
                 InternalEntry {
                     boundary_key: old_root_as_left_child_boundary,
-                    child_hash: self.root_hash.unwrap(), 
+                    child_hash: self.root_hash.unwrap(), // This is new_hash from update_result
+                    num_items_subtree: old_root_as_left_child_item_count, // <<< SET COUNT
                 },
                 InternalEntry {
-                    boundary_key: split_boundary_key, 
+                    boundary_key: split_boundary_key,
                     child_hash: new_sibling_hash,
+                    num_items_subtree: new_sibling_item_count, // <<< SET COUNT
                 },
             ];
-            
-            let new_root_level = root_node.level() + 1;
+
+            let new_root_level = root_node.level() + 1; // root_node is the *original* root before the insert operation started
             let new_root_node_obj = Node::new_internal(new_root_children, new_root_level)?;
             let (_final_boundary, final_root_hash) = self.store_node_and_get_key_hash_pair(&new_root_node_obj).await?;
             self.root_hash = Some(final_root_hash);
@@ -295,9 +319,14 @@ impl<S: ChunkStore> ProllyTree<S> {
                             if entries.is_empty() {
                                  return Ok(DeleteRecursionResult::Merged);
                             } else {
-                                // Pass an immutable reference to the (modified) owned current_node_obj
+                                let new_leaf_item_count = entries.len() as u64;
                                 let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
+                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{
+                                    new_hash,
+                                    new_boundary_key: new_boundary,
+                                    new_item_count: new_leaf_item_count, // <<< SET COUNT
+                                    split_info: None // No split on delete
+                                }))
                             }
                         }
                         Err(_) => {
@@ -333,58 +362,59 @@ impl<S: ChunkStore> ProllyTree<S> {
                     let child_delete_result = self.recursive_delete_impl(child_hash, key, child_level, key_actually_deleted_flag).await?;
 
                     match child_delete_result {
-                        DeleteRecursionResult::NotFound { .. } => { /* ... unchanged ... */
-                             let boundary_key = children.last().map(|ce| ce.boundary_key.clone())
-                                 .ok_or_else(|| ProllyError::InternalError("Cannot get boundary key from empty internal node (not found path)".to_string()))?;
-                             Ok(DeleteRecursionResult::NotFound { node_hash, boundary_key })
+                        DeleteRecursionResult::NotFound { node_hash: _, boundary_key: _ } => {
+                            // Node's item count doesn't change if child reported NotFound.
+                            // Boundary key of this node for ProcessedNodeUpdate if it were to return Updated.
+                            // However, NotFound should propagate if this node itself wasn't the target.
+                            // For simplicity, if a child says NotFound, this node's state hasn't changed structurally.
+                            // The original boundary key is still valid.
+                            let current_node_boundary_key = children.last().map(|ce| ce.boundary_key.clone())
+                                .ok_or_else(|| ProllyError::InternalError("Internal node empty during NotFound propagation".to_string()))?;
+                            Ok(DeleteRecursionResult::NotFound { node_hash, boundary_key: current_node_boundary_key })
                         }
                         DeleteRecursionResult::Updated(child_update) => {
-                             children[child_idx_to_descend].child_hash = child_update.new_hash;
-                             children[child_idx_to_descend].boundary_key = child_update.new_boundary_key;
+                            children[child_idx_to_descend].child_hash = child_update.new_hash;
+                            children[child_idx_to_descend].boundary_key = child_update.new_boundary_key;
+                            children[child_idx_to_descend].num_items_subtree = child_update.new_item_count; // <<< UPDATE COUNT
 
-                             let child_node = self.load_node(&child_update.new_hash).await?;
-                             let needs_rebalance_or_merge = child_node.is_underflow(&self.config);
-
-                             if needs_rebalance_or_merge {
-                                 self.handle_underflow(children, child_idx_to_descend).await?;
-                                 if children.is_empty() { return Ok(DeleteRecursionResult::Merged); }
-                             }
-
-                            if children.is_empty() {
-                                Ok(DeleteRecursionResult::Merged)
-                            } else {
-                                // Pass an immutable reference to the (modified) owned current_node_obj
-                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?; // <--- FIX APPLIED (was &*current_node_obj)
-                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{ new_hash, new_boundary_key: new_boundary, split_info: None }))
+                            let child_node_after_update = self.load_node(&child_update.new_hash).await?;
+                            if child_node_after_update.is_underflow(&self.config) {
+                                // IMPORTANT: handle_underflow MUST correctly update the num_items_subtree
+                                // of the children it modifies within the `children` Vec.
+                                self.handle_underflow(children, child_idx_to_descend).await?;
+                                if children.is_empty() { // Current internal node itself merged away
+                                    return Ok(DeleteRecursionResult::Merged);
+                                }
                             }
+
+                            // After potential handle_underflow, children list and their counts are up-to-date.
+                            let current_node_total_items: u64 = children.iter().map(|c| c.num_items_subtree).sum();
+                            let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+                            Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate{
+                                new_hash,
+                                new_boundary_key: new_boundary,
+                                new_item_count: current_node_total_items, // <<< SET COUNT
+                                split_info: None
+                            }))
                         }
                         DeleteRecursionResult::Merged => {
                             children.remove(child_idx_to_descend);
 
-                            if children.is_empty() {
+                            if children.is_empty() { // Current internal node is now empty
                                 return Ok(DeleteRecursionResult::Merged);
                             }
 
-                            // Get an immutable reference to the (modified) owned current_node_obj
-                            let node_ref_for_check: &Node = &current_node_obj; // <--- FIX APPLIED (was &*current_node_obj)
-                            let is_node_underflow = node_ref_for_check.is_underflow(&self.config);
-                            
-                            let num_children_after_remove = match node_ref_for_check {
-                                Node::Internal { children: c, .. } => c.len(),
-                                _ => 0, 
-                            };
-
-                            if level > 0 && is_node_underflow && num_children_after_remove < self.config.min_fanout {
-                                Ok(DeleteRecursionResult::Merged)
-                            } else {
-                                // Pass the immutable reference node_ref_for_check (or just &current_node_obj directly)
-                                let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(node_ref_for_check).await?;
-                                Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate {
-                                    new_hash,
-                                    new_boundary_key: new_boundary,
-                                    split_info: None,
-                                }))
-                            }
+                            // current_node_obj is modified (child removed). Check if it's underflow.
+                            // This underflow will be handled by ITS parent in the recursion.
+                            // Here, just report its new state.
+                            let current_node_total_items: u64 = children.iter().map(|c| c.num_items_subtree).sum();
+                            let (new_boundary, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
+                            Ok(DeleteRecursionResult::Updated(ProcessedNodeUpdate {
+                                new_hash,
+                                new_boundary_key: new_boundary,
+                                new_item_count: current_node_total_items, // <<< SET COUNT
+                                split_info: None,
+                            }))
                         }
                     }
                 }
@@ -409,24 +439,37 @@ impl<S: ChunkStore> ProllyTree<S> {
                         Err(index) => entries.insert(index, LeafEntry { key, value }),
                     }
 
-                    if entries.len() > self.config.target_fanout {
+                    let current_leaf_item_count = entries.len() as u64;
+
+                    if entries.len() > self.config.target_fanout { // Leaf splits
                         let mid_idx = entries.len() / 2;
-                        let right_sibling_entries = entries.split_off(mid_idx); 
+                        let right_sibling_entries = entries.split_off(mid_idx);
+                        // entries now contains the left part
+
+                        let left_split_item_count = entries.len() as u64;
+                        let right_split_item_count = right_sibling_entries.len() as u64;
 
                         let right_sibling_boundary_key = right_sibling_entries.last().ok_or_else(|| ProllyError::InternalError("Split leaf created empty right sibling".to_string()))?.key.clone();
                         let right_sibling_node = Node::Leaf { level: 0, entries: right_sibling_entries };
-                        let (_r_boundary, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
-                        
+                        let (_r_b, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
+
+                        // current_node_obj is the left part of the split
                         let (left_boundary_key, left_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
 
                         Ok(ProcessedNodeUpdate {
                             new_hash: left_hash,
                             new_boundary_key: left_boundary_key,
-                            split_info: Some((right_sibling_boundary_key, right_sibling_hash)),
+                            new_item_count: left_split_item_count, // Item count of the left node
+                            split_info: Some((right_sibling_boundary_key, right_sibling_hash, right_split_item_count)), // Pass right sibling's item count
                         })
-                    } else {
+                    } else { // Leaf does not split
                         let (new_boundary_key, new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
-                        Ok(ProcessedNodeUpdate { new_hash, new_boundary_key, split_info: None })
+                        Ok(ProcessedNodeUpdate {
+                            new_hash,
+                            new_boundary_key,
+                            new_item_count: current_leaf_item_count, // Total items in this leaf
+                            split_info: None,
+                        })
                     }
                 }
                 Node::Internal { children, .. } => {
@@ -445,36 +488,47 @@ impl<S: ChunkStore> ProllyTree<S> {
 
                     children[child_idx_to_descend].child_hash = child_update_result.new_hash;
                     children[child_idx_to_descend].boundary_key = child_update_result.new_boundary_key;
+                    children[child_idx_to_descend].num_items_subtree = child_update_result.new_item_count; // <<< UPDATE COUNT
 
-                    let mut split_to_propagate = None;
+                    let mut split_to_propagate_upwards: Option<(Key, Hash, u64)> = None;
 
-                    if let Some((boundary_from_child_split, new_child_sibling_hash)) = child_update_result.split_info {
+                    if let Some((boundary_from_child_split, new_child_sibling_hash, child_sibling_item_count)) = child_update_result.split_info {
                         let new_internal_entry = InternalEntry {
                             boundary_key: boundary_from_child_split,
                             child_hash: new_child_sibling_hash,
+                            num_items_subtree: child_sibling_item_count,
                         };
-                        
+
                         let pos_to_insert_sibling = children.binary_search_by_key(&&new_internal_entry.boundary_key, |e| &e.boundary_key).unwrap_or_else(|e| e);
                         children.insert(pos_to_insert_sibling, new_internal_entry);
 
-                        if children.len() > self.config.target_fanout {
+                        if children.len() > self.config.target_fanout { // Internal node itself splits
                             let mid_idx = children.len() / 2;
-                            let right_sibling_children = children.split_off(mid_idx);
+                            let right_sibling_children_entries = children.split_off(mid_idx);
+                            // `children` now contains the left part
 
-                            let right_sibling_boundary_key = right_sibling_children.last().ok_or_else(|| ProllyError::InternalError("Split internal created empty right sibling".to_string()))?.boundary_key.clone();
-                            let right_sibling_node = Node::Internal { level, children: right_sibling_children }; 
-                            let (_r_boundary, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
-                            
-                            split_to_propagate = Some((right_sibling_boundary_key, right_sibling_hash));
+                            let left_internal_node_item_count: u64 = children.iter().map(|c| c.num_items_subtree).sum();
+                            let right_internal_node_item_count: u64 = right_sibling_children_entries.iter().map(|c| c.num_items_subtree).sum();
+
+                            let right_sibling_boundary_key = right_sibling_children_entries.last().ok_or_else(|| ProllyError::InternalError("Split internal created empty right sibling".to_string()))?.boundary_key.clone();
+                            let right_sibling_node = Node::Internal { level, children: right_sibling_children_entries }; // `level` is from the current node
+                            let (_r_b, right_sibling_hash) = self.store_node_and_get_key_hash_pair(&right_sibling_node).await?;
+
+                            split_to_propagate_upwards = Some((right_sibling_boundary_key, right_sibling_hash, right_internal_node_item_count)); // This creates a 3-tuple
+                            // The `current_node_obj` (which `children` refers to) is now the left part of the split.
+                            // Its item count will be `left_internal_node_item_count`.
                         }
                     }
-                    
+
+                    // Calculate total item count for the current_node_obj (which is either the whole node or the left part of a split)
+                    let current_node_total_items: u64 = children.iter().map(|c| c.num_items_subtree).sum();
                     let (current_node_new_boundary, current_node_new_hash) = self.store_node_and_get_key_hash_pair(&current_node_obj).await?;
 
                     Ok(ProcessedNodeUpdate {
                         new_hash: current_node_new_hash,
                         new_boundary_key: current_node_new_boundary,
-                        split_info: split_to_propagate,
+                        new_item_count: current_node_total_items, // <<< SET COUNT
+                        split_info: split_to_propagate_upwards,
                     })
                 }
             }
@@ -496,27 +550,27 @@ impl<S: ChunkStore> ProllyTree<S> {
         let result = self.recursive_delete_impl(current_root_hash, key, root_level, &mut key_was_actually_deleted).await?;
     
         match result {
-             DeleteRecursionResult::NotFound { .. } => {
-                 // key_was_actually_deleted should be false if NotFound
-                 Ok(key_was_actually_deleted)
-             }
-             DeleteRecursionResult::Updated(update_info) => {
+            DeleteRecursionResult::NotFound { .. } => {
+                // key_was_actually_deleted should be false if NotFound
+                Ok(key_was_actually_deleted)
+            }
+            DeleteRecursionResult::Updated(update_info) => {
                 self.root_hash = Some(update_info.new_hash);
-    
                 let potentially_new_root_node = self.load_node(&self.root_hash.unwrap()).await?;
-    
                 if let Node::Internal { ref children, .. } = potentially_new_root_node {
-                    if children.len() == 1 { 
+                    if children.len() == 1 {
+                        // The new root is now the single child.
+                        // Its item count is already stored within its *own* structure (if leaf)
+                        // or its children's num_items_subtree (if internal).
+                        // count_all_items will correctly read this.
                         self.root_hash = Some(children[0].child_hash);
-                        // TODO: GC old internal root node chunk?
                     }
                 }
-                Ok(key_was_actually_deleted) 
+                Ok(key_was_actually_deleted)
             }
-            DeleteRecursionResult::Merged => {
+            DeleteRecursionResult::Merged => { // Old root was emptied/merged
                 self.root_hash = None;
-                // TODO: GC old root node chunk?
-                Ok(key_was_actually_deleted) 
+                Ok(key_was_actually_deleted)
             }
         }
     }
@@ -570,102 +624,172 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok(())
     }
 
-    // --- rebalance_borrow_from_left / right remain the same as the PREVIOUS version (with reinstated boundary updates) ---
-    async fn rebalance_borrow_from_left(
-         &mut self, children: &mut Vec<InternalEntry>, left_idx: usize, underflow_idx: usize
+    // In ProllyTree<S> impl:
+    async fn rebalance_borrow_from_right(
+        &mut self,
+        parent_children_vec: &mut Vec<InternalEntry>,
+        underflow_node_idx_in_parent: usize,
+        right_sibling_idx_in_parent: usize,
     ) -> Result<()> {
-        let mut left_node = self.load_node(&children[left_idx].child_hash).await?;
-        let mut underflow_node = self.load_node(&children[underflow_idx].child_hash).await?;
-        match (&mut left_node, &mut underflow_node) {
-            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: underflow_entries, .. }) => {
-                if let Some(borrowed_entry) = left_entries.pop() { underflow_entries.insert(0, borrowed_entry); } 
-                else { return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string())); }
+        // 1. Load child nodes
+        let mut underflow_node_obj = self.load_node(&parent_children_vec[underflow_node_idx_in_parent].child_hash).await?;
+        let mut right_node_obj = self.load_node(&parent_children_vec[right_sibling_idx_in_parent].child_hash).await?;
+
+        // 2. Perform borrow (move first entry/child from right_node to end of underflow_node)
+        match (&mut underflow_node_obj, &mut right_node_obj) {
+            (Node::Leaf { entries: underflow_entries, .. }, Node::Leaf { entries: right_entries, .. }) => {
+                if right_entries.is_empty() {
+                    return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string()));
+                }
+                let borrowed_entry = right_entries.remove(0);
+                underflow_entries.push(borrowed_entry);
             }
-            (Node::Internal { children: left_children, .. }, Node::Internal { children: underflow_children, .. }) => {
-                 if let Some(borrowed_child_entry) = left_children.pop() { underflow_children.insert(0, borrowed_child_entry); } 
-                 else { return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string())); }
+            (Node::Internal { children: underflow_children_entries, .. }, Node::Internal { children: right_children_entries, .. }) => {
+                if right_children_entries.is_empty() {
+                    return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string()));
+                }
+                let borrowed_child_internal_entry = right_children_entries.remove(0);
+                underflow_children_entries.push(borrowed_child_internal_entry);
+                // Boundary key adjustments in the parent might be needed here.
+                // The boundary key of the underflow_node in the parent internal node becomes the new
+                // boundary key of the (now larger) underflow_node.
+                // The boundary key for the right_sibling itself is fine as it's the last key of its own (now smaller) subtree.
             }
-            _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
+            _ => return Err(ProllyError::InternalError("Mismatched node types during rebalance from right".to_string())),
         }
-        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
-        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
-        children[left_idx].boundary_key = new_left_boundary; 
-        children[left_idx].child_hash = new_left_hash;
-        children[underflow_idx].boundary_key = new_underflow_boundary; // Boundary DOES change
-        children[underflow_idx].child_hash = new_underflow_hash; 
+
+        // 3. Calculate new item counts
+        let new_underflow_node_item_count = match &underflow_node_obj {
+            Node::Leaf { entries, .. } => entries.len() as u64,
+            Node::Internal { children: c, .. } => c.iter().map(|entry| entry.num_items_subtree).sum(),
+        };
+        let new_right_node_item_count = match &right_node_obj {
+            Node::Leaf { entries, .. } => entries.len() as u64,
+            Node::Internal { children: c, .. } => c.iter().map(|entry| entry.num_items_subtree).sum(),
+        };
+
+        // 4. Store modified nodes
+        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node_obj).await?;
+        let (new_right_boundary, new_right_hash) = self.store_node_and_get_key_hash_pair(&right_node_obj).await?;
+
+        // 5. Update parent_children_vec
+        parent_children_vec[underflow_node_idx_in_parent].boundary_key = new_underflow_boundary; // This boundary now covers more.
+        parent_children_vec[underflow_node_idx_in_parent].child_hash = new_underflow_hash;
+        parent_children_vec[underflow_node_idx_in_parent].num_items_subtree = new_underflow_node_item_count;
+
+        parent_children_vec[right_sibling_idx_in_parent].boundary_key = new_right_boundary; // Boundary of the right node is its own last key.
+        parent_children_vec[right_sibling_idx_in_parent].child_hash = new_right_hash;
+        parent_children_vec[right_sibling_idx_in_parent].num_items_subtree = new_right_node_item_count;
+        
         Ok(())
     }
 
-     async fn rebalance_borrow_from_right(
-         &mut self, children: &mut Vec<InternalEntry>, underflow_idx: usize, right_idx: usize
-     ) -> Result<()> {
-         let mut underflow_node = self.load_node(&children[underflow_idx].child_hash).await?;
-         let mut right_node = self.load_node(&children[right_idx].child_hash).await?;
-         match (&mut underflow_node, &mut right_node) {
-             (Node::Leaf { entries: underflow_entries, .. }, Node::Leaf { entries: right_entries, .. }) => {
-                if right_entries.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right leaf sibling".to_string())); }
-                let borrowed_entry = right_entries.remove(0); underflow_entries.push(borrowed_entry);
-             }
-             (Node::Internal { children: underflow_children, .. }, Node::Internal { children: right_children, .. }) => {
-                 if right_children.is_empty() { return Err(ProllyError::InternalError("Attempted to borrow from empty right internal sibling".to_string())); }
-                 let borrowed_child_entry = right_children.remove(0); underflow_children.push(borrowed_child_entry);
-             }
-              _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during rebalance".to_string())),
-         }
-         let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node).await?;
-         let (new_right_boundary, new_right_hash) = self.store_node_and_get_key_hash_pair(&right_node).await?;
-         children[underflow_idx].boundary_key = new_underflow_boundary; 
-         children[underflow_idx].child_hash = new_underflow_hash;
-         children[right_idx].boundary_key = new_right_boundary; // Boundary DOES change
-         children[right_idx].child_hash = new_right_hash; 
-         Ok(())
-     }
-
-    /// Helper to merge the node at `right_idx` into the node at `left_idx`.
-    /// Modifies the left child node, updates the parent's entry for the left child,
-    /// and removes the parent's entry for the right child from the `children` Vec.
-    async fn merge_into_left_sibling( // Renamed for clarity
-         &mut self,
-         children: &mut Vec<InternalEntry>, // Parent's children list
-         left_idx: usize,                   // Index of the node to merge into
-         right_idx: usize,                  // Index of the node to merge from (will be removed)
+    // --- rebalance_borrow_from_left / right remain the same as the PREVIOUS version (with reinstated boundary updates) ---
+    async fn rebalance_borrow_from_left(
+        &mut self,
+        parent_children_vec: &mut Vec<InternalEntry>, // Children list of the PARENT of nodes being rebalanced
+        left_sibling_idx_in_parent: usize,
+        underflow_node_idx_in_parent: usize,
     ) -> Result<()> {
-        if left_idx + 1 != right_idx {
-             return Err(ProllyError::InternalError(format!("Attempted to merge non-adjacent siblings: {} and {}", left_idx, right_idx)));
-         }
-        if right_idx >= children.len() {
-             return Err(ProllyError::InternalError(format!("Attempted to merge with invalid right index: {}", right_idx)));
-         }
+        // 1. Load the actual child nodes that will be modified
+        let mut left_node_obj = self.load_node(&parent_children_vec[left_sibling_idx_in_parent].child_hash).await?;
+        let mut underflow_node_obj = self.load_node(&parent_children_vec[underflow_node_idx_in_parent].child_hash).await?;
 
-        let left_hash = children[left_idx].child_hash;
-        let right_hash = children[right_idx].child_hash; 
-
-        // Load nodes
-        let mut left_node = self.load_node(&left_hash).await?;
-        let right_node = self.load_node(&right_hash).await?; // Consumed below
-
-        // Perform merge
-        match (&mut left_node, right_node) {
-            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: mut right_entries, .. }) => {
-                left_entries.append(&mut right_entries); 
+        // 2. Perform the borrow logic (modifies left_node_obj and underflow_node_obj)
+        //    This logic needs to be specific to whether they are Leaf or Internal nodes.
+        //    Example for LEAF nodes (simplified - assumes last entry moves):
+        match (&mut left_node_obj, &mut underflow_node_obj) {
+            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: underflow_entries, .. }) => {
+                if let Some(borrowed_entry) = left_entries.pop() {
+                    underflow_entries.insert(0, borrowed_entry);
+                } else {
+                    return Err(ProllyError::InternalError("Attempted to borrow from empty left leaf sibling".to_string()));
+                }
             }
-            (Node::Internal { children: left_children, .. }, Node::Internal { children: mut right_children, .. }) => {
-                 left_children.append(&mut right_children); 
+            (Node::Internal { children: left_children_entries, .. }, Node::Internal { children: underflow_children_entries, .. }) => {
+                // When borrowing for internal nodes, you move an InternalEntry from one child to another.
+                // The num_items_subtree of the MOVED InternalEntry itself is carried over.
+                // The boundary key of the parent might also need adjustment.
+                if let Some(borrowed_child_internal_entry) = left_children_entries.pop() {
+                    underflow_children_entries.insert(0, borrowed_child_internal_entry);
+                    // The boundary key of the parent InternalNode might need an update here
+                    // if the borrowed element affects the split point between left_node and underflow_node.
+                    // Typically, the parent's key separating these two might become the new last key of the (now smaller) left_node.
+                } else {
+                    return Err(ProllyError::InternalError("Attempted to borrow from empty left internal sibling".to_string()));
+                }
             }
-            _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during merge".to_string())),
+            _ => return Err(ProllyError::InternalError("Mismatched node types during rebalance".to_string())),
         }
 
-        // Store merged left node
-        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
+        // 3. Calculate new item counts for the modified child nodes
+        let new_left_node_item_count = match &left_node_obj {
+            Node::Leaf { entries, .. } => entries.len() as u64,
+            Node::Internal { children: c, .. } => c.iter().map(|entry| entry.num_items_subtree).sum(),
+        };
+        let new_underflow_node_item_count = match &underflow_node_obj {
+            Node::Leaf { entries, .. } => entries.len() as u64,
+            Node::Internal { children: c, .. } => c.iter().map(|entry| entry.num_items_subtree).sum(),
+        };
 
-        // Update parent's entry for the left sibling
-        children[left_idx].boundary_key = new_left_boundary;
-        children[left_idx].child_hash = new_left_hash;
+        // 4. Store modified child nodes and get their new hashes and boundaries
+        let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node_obj).await?;
+        let (new_underflow_boundary, new_underflow_hash) = self.store_node_and_get_key_hash_pair(&underflow_node_obj).await?;
 
-        // Remove the parent's entry for the right sibling *from the vec passed in*
-        children.remove(right_idx);
+        // 5. Update the entries in `parent_children_vec`
+        parent_children_vec[left_sibling_idx_in_parent].boundary_key = new_left_boundary;
+        parent_children_vec[left_sibling_idx_in_parent].child_hash = new_left_hash;
+        parent_children_vec[left_sibling_idx_in_parent].num_items_subtree = new_left_node_item_count; // <<< UPDATE
 
-        // TODO: Garbage Collection for right_hash chunk
+        parent_children_vec[underflow_node_idx_in_parent].boundary_key = new_underflow_boundary;
+        parent_children_vec[underflow_node_idx_in_parent].child_hash = new_underflow_hash;
+        parent_children_vec[underflow_node_idx_in_parent].num_items_subtree = new_underflow_node_item_count; // <<< UPDATE
+
+        Ok(())
+    }
+
+    async fn merge_into_left_sibling(
+        &mut self,
+        parent_children_vec: &mut Vec<InternalEntry>, // Children list of the PARENT
+        left_idx_in_parent: usize,
+        right_idx_in_parent: usize, // This is the underflow node that will be merged into left
+    ) -> Result<()> {
+        if left_idx_in_parent + 1 != right_idx_in_parent {
+            return Err(ProllyError::InternalError(format!("Attempted to merge non-adjacent siblings: {} and {}", left_idx_in_parent, right_idx_in_parent)));
+        }
+
+        // 1. Get item counts from the parent's perspective BEFORE loading/merging the actual nodes
+        let items_from_left_child_before_merge = parent_children_vec[left_idx_in_parent].num_items_subtree;
+        let items_from_right_child_before_merge = parent_children_vec[right_idx_in_parent].num_items_subtree;
+
+        // 2. Load the actual child nodes
+        let mut left_node_obj = self.load_node(&parent_children_vec[left_idx_in_parent].child_hash).await?;
+        let right_node_to_merge_obj = self.load_node(&parent_children_vec[right_idx_in_parent].child_hash).await?;
+
+        // 3. Perform the merge logic (append entries/children from right_node_to_merge_obj to left_node_obj)
+        match (&mut left_node_obj, right_node_to_merge_obj) { // right_node_to_merge_obj is consumed
+            (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: mut right_entries_to_append, .. }) => {
+                left_entries.append(&mut right_entries_to_append);
+            }
+            (Node::Internal { children: left_children_entries, .. }, Node::Internal { children: mut right_children_to_append, .. }) => {
+                left_children_entries.append(&mut right_children_to_append);
+            }
+            _ => return Err(ProllyError::InternalError("Mismatched node types during merge".to_string())),
+        }
+
+        // 4. Store the newly merged left_node_obj
+        let (new_merged_node_boundary, new_merged_node_hash) = self.store_node_and_get_key_hash_pair(&left_node_obj).await?;
+
+        // 5. Update the parent's entry for the left child (which is now the merged node)
+        parent_children_vec[left_idx_in_parent].boundary_key = new_merged_node_boundary;
+        parent_children_vec[left_idx_in_parent].child_hash = new_merged_node_hash;
+        // The new item count is the sum of items from the two children before they were merged.
+        parent_children_vec[left_idx_in_parent].num_items_subtree = items_from_left_child_before_merge + items_from_right_child_before_merge; // <<< UPDATE COUNT
+
+        // 6. Remove the right child's entry from parent_children_vec as it has been merged
+        parent_children_vec.remove(right_idx_in_parent);
+
+        // TODO: The chunk for the original right_idx_in_parent node is now orphaned. GC will handle it.
         Ok(())
     }
 
