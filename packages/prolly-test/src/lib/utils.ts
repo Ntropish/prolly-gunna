@@ -4,6 +4,10 @@ import { expect } from "vitest";
 const encoder = new TextEncoder();
 export const toU8 = (s: string): Uint8Array => encoder.encode(s);
 
+export function u8ToString(u8: Uint8Array): string {
+  return new TextDecoder().decode(u8);
+}
+
 // Define DiffEntry type for clarity in tests
 export type JsDiffEntry = {
   key: Uint8Array;

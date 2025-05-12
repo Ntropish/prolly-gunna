@@ -8,6 +8,7 @@ use log::warn;
 
 use fastcdc::v2020::FastCDC;
 
+use serde::{Deserialize, Serialize}; // For WASM serialization to JsValue
 
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
@@ -57,11 +58,74 @@ enum DeleteRecursionResult {
     Merged, // Parent needs to remove the pointer to the node that returned this
 }
 
+// Helper functions for Serde default values.
+// These MUST be in the same module as ScanArgs or properly imported if public in another module.
+fn default_start_inclusive() -> bool { true }
+fn default_end_inclusive() -> bool { false }
+fn default_reverse() -> bool { false }
+
+#[derive(Debug, Clone, Serialize, Deserialize)] // <<< THIS DERIVE IS CRITICAL
+#[serde(rename_all = "camelCase")] // This applies to the struct overall
+pub struct ScanArgs {
+    // For Option fields, serde handles missing keys by making them None if `default` is used.
+    // `skip_serializing_if` is for serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_bound: Option<Key>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_bound: Option<Key>,
+
+    // For bool fields, if you want them to default if missing in JS.
+    #[serde(default = "default_start_inclusive")]
+    pub start_inclusive: bool,
+
+    #[serde(default = "default_end_inclusive")]
+    pub end_inclusive: bool,
+
+    #[serde(default = "default_reverse")]
+    pub reverse: bool,
+
+    // For numeric types, `#[serde(default)]` uses the type's Default::default() (e.g., 0 for u64).
+    #[serde(default)]
+    pub offset: u64,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+// The manual Default impl is for Rust-side code needing to create a default ScanArgs.
+// Serde uses the #[serde(default...)] attributes for deserialization from JS.
+impl Default for ScanArgs {
+    fn default() -> Self {
+        ScanArgs {
+            start_bound: None,
+            end_bound: None,
+            start_inclusive: default_start_inclusive(),
+            end_inclusive: default_end_inclusive(),
+            reverse: default_reverse(),
+            offset: 0,
+            limit: None,
+        }
+    }
+}
+
+// ScanPage struct definition (ensure it derives Serialize)
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanPage {
+    pub items: Vec<(Key, Value)>,
+    pub has_next_page: bool,
+    pub has_previous_page: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_cursor: Option<Key>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_page_cursor: Option<Key>,
+}
+
+
 
 impl<S: ChunkStore> ProllyTree<S> {
-    // --- new, from_root_hash, get_root_hash, load_node, store_node_and_get_key_hash_pair ---
-    // --- get, recursive_get, insert, prepare_value_repr, recursive_insert ---
-    // (Keep the existing implementations for these methods from the previous step)
+
     
     pub fn new(store: Arc<S>, config: TreeConfig) -> Self { // Public
         if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 || config.target_fanout == 0 {
@@ -903,90 +967,76 @@ impl<S: ChunkStore> ProllyTree<S> {
         collector.collect(&all_live_roots_vec).await
     }
 
-    pub async fn query(
-        &self,
-        start_key: Option<Key>,
-        end_key: Option<Key>,
-        key_prefix: Option<Key>,
-        offset: usize,
-        limit: Option<usize>, // Option<usize> allows for "no limit"
-        // Consider adding a filter predicate later if needed
-        // value_filter: Option<Box<dyn Fn(&Key, &Value) -> bool + Send + Sync>>,
-    ) -> Result<Vec<(Key, Value)>> {
-        let mut results: Vec<(Key, Value)> = Vec::new();
-        let mut items_collected: usize = 0;
-        let mut items_skipped: usize = 0;
+    pub async fn scan(&self, args: ScanArgs) -> Result<ScanPage> { 
+        let mut collected_items: Vec<(Key, Value)> = Vec::new();
+        let mut items_counted_for_limit: usize = 0;
 
-        // Initialize cursor: Start from a specific key, a prefix, or the beginning
-        let mut cursor = if let Some(ref sk) = start_key {
-            self.seek(sk).await?
-        } else if let Some(ref prefix) = key_prefix {
-            self.seek(prefix).await?
+        // Create a cursor positioned by offset and initial bounds.
+        // `Cursor::new_for_scan` needs to be robust for this.
+        let mut cursor = Cursor::new_for_scan(self, &args).await?;
+
+        let mut first_item_key: Option<Key> = None;
+        let mut last_item_key: Option<Key> = None;
+
+        while let Some(limit_val) = args.limit { // Only loop if there's a limit
+            if items_counted_for_limit >= limit_val {
+                break;
+            }
+            // If no limit, this loop won't run, we fetch one more item later for has_next_page
+            // This logic needs refinement based on how `has_next_page` is determined.
+        }
+
+        // Fetch items up to the limit
+        if let Some(limit_val) = args.limit {
+            while items_counted_for_limit < limit_val {
+                match cursor.next_in_scan(&args).await? {
+                    Some((key, value)) => {
+                        if first_item_key.is_none() {
+                            first_item_key = Some(key.clone());
+                        }
+                        last_item_key = Some(key.clone());
+                        collected_items.push((key, value));
+                        items_counted_for_limit += 1;
+                    }
+                    None => break, // No more items in range
+                }
+            }
+        } else { // No limit, try to fetch all items within bounds (can be dangerous for large ranges)
+                 // Consider enforcing a sensible default/max limit if none is provided.
+                 // For now, let's assume it fetches reasonably.
+            while let Some((key, value)) = cursor.next_in_scan(&args).await? {
+                 if first_item_key.is_none() {
+                    first_item_key = Some(key.clone());
+                }
+                last_item_key = Some(key.clone());
+                collected_items.push((key,value));
+                items_counted_for_limit +=1; // Keep track even if no hard limit
+            }
+        }
+
+        let mut actual_next_item_key_for_cursor: Option<Key> = None;
+        let final_has_next_page: bool;
+
+        if args.limit.is_some() && items_counted_for_limit == args.limit.unwrap() {
+            if let Some((next_key, _)) = cursor.next_in_scan(&args).await? { // next_in_scan is called here
+                final_has_next_page = true;
+                actual_next_item_key_for_cursor = Some(next_key);
+            } else {
+                final_has_next_page = false;
+            }
         } else {
-            self.cursor_start().await?
-        };
-
-        // Skip initial items for offset
-        while items_skipped < offset {
-            match cursor.next().await? {
-                Some((current_key, _)) => {
-                    // If there's a key_prefix, and we've skipped past it, stop early
-                    if let Some(ref prefix) = key_prefix {
-                        if !current_key.starts_with(prefix) {
-                            return Ok(results); // Offset exhausted the prefix range
-                        }
-                    }
-                    // If there's an end_key, and we've skipped past it, stop early
-                    if let Some(ref ek) = end_key {
-                        if &current_key > ek {
-                            return Ok(results); // Offset exhausted the end_key range
-                        }
-                    }
-                    items_skipped += 1;
-                }
-                None => return Ok(results), // No more items to skip or collect
-            }
+            final_has_next_page = false;
         }
 
-        // Collect items up to the limit, applying filters
-        loop {
-            // Check limit
-            if let Some(l) = limit {
-                if items_collected >= l {
-                    break; // Limit reached
-                }
-            }
+        let has_previous_page = args.offset > 0;
 
-            match cursor.next().await? {
-                Some((current_key, current_value)) => {
-                    // Key-prefix filter
-                    if let Some(ref prefix) = key_prefix {
-                        if !current_key.starts_with(prefix) {
-                            break; // Moved past the prefix
-                        }
-                    }
-
-                    // End-key filter (for range queries)
-                    if let Some(ref ek) = end_key {
-                        if &current_key > ek {
-                            break; // Moved past the end_key
-                        }
-                    }
-
-                    // TODO: Value-based filtering (see section below)
-                    // if let Some(ref vf) = value_filter {
-                    //     if !vf(&current_key, &current_value) {
-                    //         continue; // Skip this item, does not count towards limit
-                    //     }
-                    // }
-
-                    results.push((current_key, current_value));
-                    items_collected += 1;
-                }
-                None => break, // End of tree iteration
-            }
-        }
-        Ok(results)
+        Ok(ScanPage {
+            items: collected_items,
+            has_next_page: final_has_next_page,
+            has_previous_page,
+            next_page_cursor: actual_next_item_key_for_cursor, // <<< ensure this is used
+            previous_page_cursor: first_item_key,
+        })
     }
 
 }

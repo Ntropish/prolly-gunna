@@ -23,11 +23,13 @@ pub mod gc;
 // Use our new ProllyTree and InMemoryStore
 use crate::tree::ProllyTree;
 use crate::store::InMemoryStore;
-use crate::tree::Cursor; // Ensure Cursor is imported
-use tokio::sync::Mutex; // Ensure Mutex is imported
+use crate::tree::Cursor; 
+use tokio::sync::Mutex; 
 use crate::common::{TreeConfig, Key, Value, Hash};
 use crate::error::ProllyError;
-use crate::diff::DiffEntry; // Make sure DiffEntry is imported
+use crate::diff::DiffEntry;
+
+use crate::tree::prolly_tree::{ScanArgs, ScanPage}; 
 
 // Helper to convert ProllyError to JsValue
 fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
@@ -47,7 +49,7 @@ pub struct WasmProllyTree {
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct WasmProllyTreeCursor {
-    inner: Arc<Mutex<Cursor<InMemoryStore>>>, // Explicit type here helps definition
+    inner: Arc<tokio::sync::Mutex<Cursor<InMemoryStore>>>,
 }
 
 #[wasm_bindgen]
@@ -57,29 +59,28 @@ impl WasmProllyTreeCursor {
     /// `{ done: boolean, value?: [Uint8Array, Uint8Array] }`
     #[wasm_bindgen]
     pub fn next(&self) -> Promise {
-        // Add explicit type annotation here
-        let cursor_clone: Arc<Mutex<Cursor<InMemoryStore>>> = Arc::clone(&self.inner);
-
+        let cursor_clone: Arc<tokio::sync::Mutex<Cursor<InMemoryStore>>> = Arc::clone(&self.inner);
         let future = async move {
-            let mut cursor = cursor_clone.lock().await; // Lock for mutable access to advance
-            match cursor.next().await {
+            let mut cursor_guard = cursor_clone.lock().await;
+            // Use next_in_scan with default arguments for a simple forward iteration
+            let default_args = ScanArgs::default();
+            match cursor_guard.next_in_scan(&default_args).await { // <<< Using next_in_scan
                 Ok(Some((key, value))) => {
-                    // Create the result object { done: false, value: [key, value] }
                     let key_js = Uint8Array::from(&key[..]);
                     let val_js = Uint8Array::from(&value[..]);
-                    let js_array = js_sys::Array::new();
-                    js_array.push(&JsValue::from(key_js));
-                    js_array.push(&JsValue::from(val_js));
+                    let js_array = JsArray::new_with_length(2);
+                    js_array.set(0, JsValue::from(key_js));
+                    js_array.set(1, JsValue::from(val_js));
 
                     let result_obj = Object::new();
-                    Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::FALSE)?;
-                    Reflect::set(&result_obj, &JsValue::from_str("value"), &JsValue::from(js_array))?;
+                    // Ensure proper error handling for Reflect::set, though unlikely to fail here
+                    let _ = Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::FALSE);
+                    let _ = Reflect::set(&result_obj, &JsValue::from_str("value"), &JsValue::from(js_array));
                     Ok(JsValue::from(result_obj))
                 }
                 Ok(None) => {
-                    // Create the result object { done: true }
                     let result_obj = Object::new();
-                    Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::TRUE)?;
+                    let _ = Reflect::set(&result_obj, &JsValue::from_str("done"), &JsValue::TRUE);
                     Ok(JsValue::from(result_obj))
                 }
                 Err(e) => Err(prolly_error_to_jsvalue(e)),
@@ -418,7 +419,6 @@ impl WasmProllyTree {
         wasm_bindgen_futures::future_to_promise(future)
     }
 
-
     /// Triggers garbage collection on the underlying store.
     ///
     /// The `live_root_hashes_js` should be a JavaScript array of `Uint8Array`s,
@@ -478,36 +478,37 @@ impl WasmProllyTree {
         wasm_bindgen_futures::future_to_promise(future)
     }
 
-    #[wasm_bindgen(js_name = queryItems)]
-    pub fn query_items(
+    /// NEW scanItems method
+    #[wasm_bindgen(js_name = scanItems)]
+    pub fn scan_items(
         &self,
-        start_key_js: Option<Uint8Array>,
-        end_key_js: Option<Uint8Array>,
-        key_prefix_js: Option<Uint8Array>,
-        offset_js: Option<usize>, // Use Option<usize> for undefined from JS
-        limit_js: Option<usize>,  // Use Option<usize> for undefined from JS
-        // value_filter_descriptor_js: Option<JsValue> // For future value filtering
+        scan_args_js: JsValue, // Accept JsValue, which can be an object or undefined/null
     ) -> Promise {
-        let start_key: Option<Key> = start_key_js.map(|arr| arr.to_vec());
-        let end_key: Option<Key> = end_key_js.map(|arr| arr.to_vec());
-        let key_prefix: Option<Key> = key_prefix_js.map(|arr| arr.to_vec());
-        let offset: usize = offset_js.unwrap_or(0); // Default offset to 0
-        let limit: Option<usize> = limit_js;       // Pass Option directly
+        // Deserialize ScanArgs from JsValue if it's an object, otherwise use default.
+        let args_result: std::result::Result<ScanArgs, serde_wasm_bindgen::Error> = if scan_args_js.is_object() {
+            serde_wasm_bindgen::from_value(scan_args_js)
+        } else if scan_args_js.is_undefined() || scan_args_js.is_null() {
+            Ok(ScanArgs::default()) // Use default if JS sends undefined/null
+        } else {
+            // If it's some other non-object type, that's an error.
+            Err(serde_wasm_bindgen::Error::new("scanItems expects an object or null/undefined for arguments"))
+        };
+
+        let args = match args_result {
+            Ok(a) => a,
+            Err(e) => return Promise::reject(&JsValue::from_str(&format!("Invalid ScanArgs: {}", e))),
+        };
 
         let tree_clone = Arc::clone(&self.inner);
-
         let future = async move {
             let tree_guard = tree_clone.lock().await;
-            match tree_guard.query(start_key, end_key, key_prefix, offset, limit).await {
-                Ok(rust_results) => {
-                    let js_results_array = JsArray::new();
-                    for (k, v) in rust_results {
-                        let pair_array = JsArray::new_with_length(2);
-                        pair_array.set(0, Uint8Array::from(&k[..]).into());
-                        pair_array.set(1, Uint8Array::from(&v[..]).into());
-                        js_results_array.push(&pair_array.into());
-                    }
-                    Ok(JsValue::from(js_results_array))
+            match tree_guard.scan(args).await { // Call the Rust ProllyTree::scan method
+                Ok(scan_page_rust) => {
+                    // Serialize the ScanPage Rust struct to JsValue.
+                    // serde_wasm_bindgen will handle converting Vec<(Key, Value)> to
+                    // JS Array of [Uint8Array, Uint8Array] and other fields appropriately.
+                    serde_wasm_bindgen::to_value(&scan_page_rust)
+                        .map_err(|e| JsValue::from_str(&format!("Failed to serialize ScanPage: {}", e)))
                 }
                 Err(e) => Err(prolly_error_to_jsvalue(e)),
             }
@@ -528,7 +529,6 @@ impl WasmProllyTree {
         wasm_bindgen_futures::future_to_promise(future)
     }
 }
-
 
 // ---------- Unit tests (run with `wasm-pack test --firefox --headless`) ----------
 // Ensure you have wasm-bindgen-test installed and configured.
