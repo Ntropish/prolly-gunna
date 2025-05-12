@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-import init, {
-  WasmProllyTree,
-  WasmProllyTreeCursor,
-  type ScanArgs,
-} from "prolly-wasm";
+import init, { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
 import {
   expectKeyValueArrayEq,
   jsPromiseToKeyValueArray,

@@ -11,8 +11,10 @@ use crate::store::ChunkStore;
 use crate::ScanArgs;
 use super::ProllyTree; // Access sibling module
 
+
+
 /// Represents an ongoing traversal over the key-value pairs in a ProllyTree.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Cursor<S: ChunkStore> {
     /// Reference to the store to load nodes.
     store: Arc<S>,

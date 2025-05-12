@@ -911,73 +911,65 @@ impl<S: ChunkStore> ProllyTree<S> {
         collector.collect(&all_live_roots_vec).await
     }
 
-    pub async fn scan(&self, args: ScanArgs) -> Result<ScanPage> { 
+    pub async fn scan(&self, args: ScanArgs) -> Result<ScanPage> {
         let mut collected_items: Vec<(Key, Value)> = Vec::new();
-        let mut items_counted_for_limit: usize = 0;
+        let mut items_to_fetch: Option<usize> = None;
+        let mut actual_next_item_for_cursor: Option<(Key, Value)> = None;
+
+        if let Some(limit_val) = args.limit {
+            if limit_val > 0 { // Only try to fetch limit + 1 if limit is positive
+                items_to_fetch = Some(limit_val + 1);
+            } else { // limit is 0, fetch 0 items
+                items_to_fetch = Some(0);
+            }
+        }
+        // If args.limit is None, items_to_fetch remains None, meaning fetch all within bounds.
 
         // Create a cursor positioned by offset and initial bounds.
-        // `Cursor::new_for_scan` needs to be robust for this.
         let mut cursor = Cursor::new_for_scan(self, &args).await?;
 
         let mut first_item_key: Option<Key> = None;
-        let mut last_item_key: Option<Key> = None;
+        let mut last_item_key_in_page: Option<Key> = None; // Key of the Nth item if limit is N
 
-        while let Some(limit_val) = args.limit { // Only loop if there's a limit
-            if items_counted_for_limit >= limit_val {
-                break;
-            }
-            // If no limit, this loop won't run, we fetch one more item later for has_next_page
-            // This logic needs refinement based on how `has_next_page` is determined.
-        }
-
-        // Fetch items up to the limit
-        if let Some(limit_val) = args.limit {
-            while items_counted_for_limit < limit_val {
+        if items_to_fetch == Some(0) { // Explicit limit of 0
+            // No items to fetch
+        } else {
+            for i in 0..items_to_fetch.unwrap_or(usize::MAX) { // Loop up to limit+1 or effectively infinity
                 match cursor.next_in_scan(&args).await? {
                     Some((key, value)) => {
                         if first_item_key.is_none() {
                             first_item_key = Some(key.clone());
                         }
-                        last_item_key = Some(key.clone());
-                        collected_items.push((key, value));
-                        items_counted_for_limit += 1;
+
+                        if items_to_fetch.is_some() && collected_items.len() < args.limit.unwrap_or(usize::MAX) {
+                            // This is one of the primary items for the current page
+                            last_item_key_in_page = Some(key.clone());
+                            collected_items.push((key, value));
+                        } else if items_to_fetch.is_some() && collected_items.len() == args.limit.unwrap_or(usize::MAX) {
+                            // This is the (limit + 1)th item, store it for cursor/has_next_page
+                            actual_next_item_for_cursor = Some((key, value));
+                            break; // We have fetched one beyond the limit
+                        } else if items_to_fetch.is_none() { // No limit specified, collect all
+                            last_item_key_in_page = Some(key.clone());
+                            collected_items.push((key, value));
+                        }
                     }
                     None => break, // No more items in range
                 }
             }
-        } else { // No limit, try to fetch all items within bounds (can be dangerous for large ranges)
-                 // Consider enforcing a sensible default/max limit if none is provided.
-                 // For now, let's assume it fetches reasonably.
-            while let Some((key, value)) = cursor.next_in_scan(&args).await? {
-                 if first_item_key.is_none() {
-                    first_item_key = Some(key.clone());
-                }
-                last_item_key = Some(key.clone());
-                collected_items.push((key,value));
-                items_counted_for_limit +=1; // Keep track even if no hard limit
-            }
         }
 
-        let mut actual_next_item_key_for_cursor: Option<Key> = None;
-        let final_has_next_page: bool;
 
-        if args.limit.is_some() && items_counted_for_limit == args.limit.unwrap() {
-            if let Some((next_key, _)) = cursor.next_in_scan(&args).await? { // next_in_scan is called here
-                final_has_next_page = true;
-                actual_next_item_key_for_cursor = Some(next_key);
-            } else {
-                final_has_next_page = false;
-            }
-        } else {
-            final_has_next_page = false;
-        }
-
+        let final_has_next_page = actual_next_item_for_cursor.is_some();
+        let has_previous_page = args.offset > 0;
 
         Ok(ScanPage {
-            items: collected_items,
+            items: collected_items, // Contains up to `limit` items
             has_next_page: final_has_next_page,
-            has_previous_page: args.offset > 0, 
-            next_page_cursor: if final_has_next_page { last_item_key } else { None }, // Use the actual last key of this page
+            has_previous_page,
+            // If has_next_page is true, actual_next_item_for_cursor contains the (limit+1)th item.
+            // Its key is the ideal next_page_cursor.
+            next_page_cursor: actual_next_item_for_cursor.map(|(k, _v)| k),
             previous_page_cursor: first_item_key,
         })
     }
