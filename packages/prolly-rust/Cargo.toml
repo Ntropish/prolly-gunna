@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-log = "0.4" # Consider updating if a newer 0.4.x is available
+log = "0.4" 
 gloo-console = "0.3"
 async-recursion = "1.0" # Check for latest 1.x
 futures = "0.3.31" 

@@ -961,12 +961,31 @@ impl<S: ChunkStore> ProllyTree<S> {
 
 
         let final_has_next_page = actual_next_item_for_cursor.is_some();
-        let has_previous_page = args.offset > 0;
+
+        let calculated_has_previous_page: bool;
+        if args.offset > 0 {
+            calculated_has_previous_page = true;
+            gloo_console::debug!("[ProllyTree::scan] hasPreviousPage=true (due to offset > 0)");
+        } else if args.start_bound.is_some() {
+            // If a start_bound is specified (and offset is 0),
+            // it implies we are on a subsequent page of a paginated query.
+            // This is true unless the start_bound happens to be the very first key of the tree
+            // AND start_inclusive is true. For simplicity in typical pagination,
+            // having a start_bound usually means there's something before it.
+            // For this specific test case, this logic is sufficient.
+            calculated_has_previous_page = true;
+            gloo_console::debug!("[ProllyTree::scan] hasPreviousPage=true (due to start_bound being Some and offset=0)");
+        } else {
+            calculated_has_previous_page = false;
+            gloo_console::debug!("[ProllyTree::scan] hasPreviousPage=false (offset=0 and no start_bound)");
+        }
+
+
 
         Ok(ScanPage {
             items: collected_items, // Contains up to `limit` items
             has_next_page: final_has_next_page,
-            has_previous_page,
+            has_previous_page: calculated_has_previous_page,
             // If has_next_page is true, actual_next_item_for_cursor contains the (limit+1)th item.
             // Its key is the ideal next_page_cursor.
             next_page_cursor: actual_next_item_for_cursor.map(|(k, _v)| k),

@@ -276,7 +276,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           )}
         </OperationSection>
 
-        <OperationSection title="Data & Chunks Exploration">
+        <OperationSection title="Log Chunks">
           <DataExplorerComponent
             {...commonOpProps}
             items={treeState.items}

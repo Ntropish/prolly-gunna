@@ -477,12 +477,16 @@ impl WasmProllyTree {
         wasm_bindgen_futures::future_to_promise(future)
     }
 
-    /// NEW scanItems method
     #[wasm_bindgen(js_name = scanItems)]
     pub fn scan_items(
         &self,
         scan_args_js: JsValue, // Accept JsValue, which can be an object or undefined/null
     ) -> Promise {
+
+        // Log the raw JSValue received for arguments
+        gloo_console::debug!(format!("Rust scan_items: Received scan_args_js: {:?}", scan_args_js));
+
+
         // Deserialize ScanArgs from JsValue if it's an object, otherwise use default.
         let args_result: std::result::Result<ScanArgs, serde_wasm_bindgen::Error> = if scan_args_js.is_object() {
             serde_wasm_bindgen::from_value(scan_args_js)
@@ -501,13 +505,38 @@ impl WasmProllyTree {
         let tree_clone = Arc::clone(&self.inner);
         let future = async move {
             let tree_guard = tree_clone.lock().await;
-            match tree_guard.scan(args).await { // Call the Rust ProllyTree::scan method
-                Ok(scan_page_rust) => {
-                    // Serialize the ScanPage Rust struct to JsValue.
-                    // serde_wasm_bindgen will handle converting Vec<(Key, Value)> to
-                    // JS Array of [Uint8Array, Uint8Array] and other fields appropriately.
-                    serde_wasm_bindgen::to_value(&scan_page_rust)
-                        .map_err(|e| JsValue::from_str(&format!("Failed to serialize ScanPage: {}", e)))
+            match tree_guard.scan(args).await { // This returns your internal ScanPage with Vec<u8>
+                Ok(rust_scan_page) => {
+                    // Manually construct the JS object
+                    let result_obj = js_sys::Object::new();
+
+                    // Items: Vec<(JsUint8Array, JsUint8Array)>
+                    let js_items_array = js_sys::Array::new_with_length(rust_scan_page.items.len() as u32);
+                    for (i, (k, v)) in rust_scan_page.items.into_iter().enumerate() {
+                        let key_js = Uint8Array::from(k.as_slice());
+                        let val_js = Uint8Array::from(v.as_slice());
+                        let pair_array = js_sys::Array::new_with_length(2);
+                        pair_array.set(0, JsValue::from(key_js));
+                        pair_array.set(1, JsValue::from(val_js));
+                        js_items_array.set(i as u32, JsValue::from(pair_array));
+                    }
+                    js_sys::Reflect::set(&result_obj, &JsValue::from_str("items"), &js_items_array)?;
+
+                    js_sys::Reflect::set(&result_obj, &JsValue::from_str("hasNextPage"), &JsValue::from_bool(rust_scan_page.has_next_page))?;
+                    js_sys::Reflect::set(&result_obj, &JsValue::from_str("hasPreviousPage"), &JsValue::from_bool(rust_scan_page.has_previous_page))?;
+
+                    if let Some(cursor_key) = rust_scan_page.next_page_cursor {
+                        let js_cursor = Uint8Array::from(cursor_key.as_slice());
+                        js_sys::Reflect::set(&result_obj, &JsValue::from_str("nextPageCursor"), &js_cursor)?;
+                    }
+                    // If None, the field will be missing, which JS handles as undefined.
+
+                    if let Some(cursor_key) = rust_scan_page.previous_page_cursor {
+                        let js_cursor = Uint8Array::from(cursor_key.as_slice());
+                        js_sys::Reflect::set(&result_obj, &JsValue::from_str("previousPageCursor"), &js_cursor)?;
+                    }
+
+                    Ok(JsValue::from(result_obj))
                 }
                 Err(e) => Err(prolly_error_to_jsvalue(e)),
             }

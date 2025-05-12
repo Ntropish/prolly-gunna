@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
 import { u8ToString, hexToU8 } from "@/lib/prollyUtils";
+import { toast } from "sonner";
 
 interface AdvancedOpsProps extends OperationProps {
   diffResult: TreeState["diffResult"];
@@ -18,7 +19,6 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
   tree,
   setLoading,
   loadingStates,
-  setFeedback,
   updateTreeStoreState,
   diffResult,
   gcCollectedCount,
@@ -30,7 +30,6 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
 
   const handleDiff = async () => {
     setLoading("diff", true);
-    setFeedback(null);
     try {
       const h1 = hexToU8(diffHash1);
       const h2 = hexToU8(diffHash2);
@@ -41,13 +40,11 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
         right: entry.rightValue ? u8ToString(entry.rightValue) : undefined,
       }));
       updateTreeStoreState({ diffResult: formattedDiffs });
-      setFeedback({
-        type: "success",
-        message: `Diff computed with ${formattedDiffs.length} differences.`,
-      });
+
+      toast.success(`Diff computed with ${formattedDiffs.length} differences.`);
     } catch (e: any) {
       updateTreeStoreState({ diffResult: [] });
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e);
     } finally {
       setLoading("diff", false);
     }
@@ -55,7 +52,6 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
 
   const handleGc = async () => {
     setLoading("gc", true);
-    setFeedback(null);
     try {
       const liveHashesU8Arrays = gcLiveHashes
         .split(",")
@@ -64,14 +60,13 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
         .filter((arr) => arr !== null) as Uint8Array[];
       const collected = await tree.triggerGc(liveHashesU8Arrays);
       updateTreeStoreState({ gcCollectedCount: collected });
-      setFeedback({
-        type: "success",
-        message: `${collected} chunk(s) collected by GC.`,
-      });
+      toast.success(
+        `${collected} chunk(s) collected by GC. This tree's store is now smaller.`
+      );
       await triggerChunkExport(); // Refresh chunk list in parent
     } catch (e: any) {
       updateTreeStoreState({ gcCollectedCount: null });
-      setFeedback({ type: "error", message: e.message });
+      toast.error(e.message);
     } finally {
       setLoading("gc", false);
     }

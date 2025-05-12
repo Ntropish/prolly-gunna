@@ -73,40 +73,6 @@ export const DataExplorerComponent: React.FC<DataExplorerProps> = ({
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <h4 className="font-medium text-sm">
-            All Items in Tree ({items.length})
-          </h4>
-          <Button
-            onClick={handleListItems}
-            disabled={loadingStates.list}
-            size="sm"
-            variant="outline"
-          >
-            {loadingStates.list ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <List className="mr-2 h-4 w-4" />
-            )}{" "}
-            Show Items
-          </Button>
-        </div>
-        {items.length > 0 && (
-          <ScrollArea className="h-40 max-h-60 w-full rounded-md border p-2 mt-1 bg-muted/30">
-            <pre className="text-xs text-left whitespace-pre-wrap break-all">
-              {items
-                .map(
-                  (item, idx) =>
-                    `Key: ${item.key}\nValue: ${item.value}${
-                      idx < items.length - 1 ? "\n──────────────────" : ""
-                    }`
-                )
-                .join("\n")}
-            </pre>
-          </ScrollArea>
-        )}
-      </div>
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <h4 className="font-medium text-sm">
             Stored Chunks ({chunks.length})
           </h4>
           <Button

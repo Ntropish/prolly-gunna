@@ -284,16 +284,15 @@ impl<S: ChunkStore> Cursor<S> {
         tree: &ProllyTree<S>,
         args: &ScanArgs,
     ) -> Result<Self> {
+        gloo_console::debug!(format!("[Cursor::new_for_scan] Received Args: {:?}", args));
+
         let store = Arc::clone(&tree.store);
         let config = tree.config.clone();
         let mut path: Vec<(Hash, Node, usize)> = Vec::new();
-        // Initialize current_leaf_entry_idx to a sensible default.
-        // It will be precisely set by the logic below.
         let mut current_leaf_entry_idx: usize = if args.reverse { usize::MAX } else { 0 };
-        let mut remaining_offset = args.offset;
 
         if tree.root_hash.is_none() {
-            // For an empty tree, the cursor is effectively at its "end" or "before beginning".
+            gloo_console::debug!("[Cursor::new_for_scan] Tree is empty.");
             return Ok(Self { store, config, path, current_leaf_entry_idx });
         }
 
@@ -301,184 +300,356 @@ impl<S: ChunkStore> Cursor<S> {
         let mut current_node_obj = tree.load_node(&current_hash).await?;
         path.push((current_hash, current_node_obj.clone(), usize::MAX));
 
+        // --- Phase 1: Initial descent based on primary bound (start_bound for fwd, start_bound for rev initial target) ---
         let primary_bound_for_initial_descend: Option<&Key> = if !args.reverse {
             args.start_bound.as_ref()
         } else {
-            args.end_bound.as_ref()
+            args.start_bound.as_ref() // For reverse, we also descend towards start_bound (upper limit)
+                                      // then adjust index to be *before* it if exclusive.
         };
+        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1: primary_bound_for_initial_descend: {:?}", primary_bound_for_initial_descend.map(|k| format!("{:?}", k))));
 
-        // Phase 1: Descend to the initial candidate leaf based on bounds
-        while let Node::Internal { children, .. } = &current_node_obj {
-            if children.is_empty() {
-                return Ok(Self { store, config, path, current_leaf_entry_idx });
+        if let Some(key_to_find_in_descent) = primary_bound_for_initial_descend {
+            while let Node::Internal { children, .. } = &current_node_obj {
+                if children.is_empty() { break; }
+                let child_idx_to_descend = children
+                    .binary_search_by_key(key_to_find_in_descent, |entry| entry.boundary_key.clone())
+                    .map_or_else(|idx| idx, |idx| idx)
+                    .min(children.len().saturating_sub(1));
+                
+                current_hash = children[child_idx_to_descend].child_hash;
+                current_node_obj = tree.load_node(&current_hash).await?;
+                path.push((current_hash, current_node_obj.clone(), child_idx_to_descend));
             }
-            let child_idx_to_descend: usize = if let Some(key_to_find) = primary_bound_for_initial_descend {
+            if let Node::Leaf { entries, .. } = &current_node_obj {
                 if !args.reverse {
-                    children.binary_search_by_key(key_to_find, |entry| entry.boundary_key.clone())
-                        .map_or_else(|idx| idx, |idx| if args.start_inclusive { idx } else { idx.saturating_add(1) })
-                        .min(children.len().saturating_sub(1))
-                } else {
-                    match children.binary_search_by_key(key_to_find, |entry| entry.boundary_key.clone()) {
-                        Ok(idx) => idx,
-                        Err(idx) => idx.min(children.len().saturating_sub(1)),
+                    match entries.binary_search_by_key(key_to_find_in_descent, |e| e.key.clone()) {
+                        Ok(idx) => current_leaf_entry_idx = idx,
+                        Err(idx) => current_leaf_entry_idx = idx,
+                    }
+                } else { // Reverse scan, initially positioned relative to start_bound (upper)
+                    match entries.binary_search_by_key(key_to_find_in_descent, |e| e.key.clone()) {
+                        Ok(idx) => current_leaf_entry_idx = idx,
+                        Err(idx) => current_leaf_entry_idx = idx.saturating_sub(1),
+                    }
+                    if entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                    else if current_leaf_entry_idx >= entries.len() { current_leaf_entry_idx = entries.len().saturating_sub(1); }
+                }
+            }
+             gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1 (Bound): Positioned at entry_idx: {:?} relative to primary_bound", current_leaf_entry_idx));
+        } else { // No primary bound, descend to first/last leaf
+            while let Node::Internal { children, .. } = &current_node_obj {
+                 if children.is_empty() { break; }
+                 let child_idx_to_descend = if !args.reverse { 0 } else { children.len() - 1 };
+                 current_hash = children[child_idx_to_descend].child_hash;
+                 current_node_obj = tree.load_node(&current_hash).await?;
+                 path.push((current_hash, current_node_obj.clone(), child_idx_to_descend));
+            }
+            if args.reverse {
+                if let Node::Leaf{ entries, .. } = &current_node_obj {
+                    current_leaf_entry_idx = entries.len().saturating_sub(1);
+                    if entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                } else { current_leaf_entry_idx = usize::MAX; }
+            } // Forward current_leaf_entry_idx is already 0
+            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1 (No Bound): Initial entry_idx: {:?}", current_leaf_entry_idx));
+        }
+
+        // --- Phase 2: Apply offset ---
+        let mut remaining_offset = args.offset;
+        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 2: Applying offset: {}, current_leaf_entry_idx before offset: {:?}", remaining_offset, current_leaf_entry_idx));
+
+        while remaining_offset > 0 && !path.is_empty() {
+            let (_current_leaf_hash, current_leaf_node_obj_ref, _parent_idx) = path.last().unwrap(); // Should be a leaf
+            
+            // Clone to satisfy borrow checker if advance_..._leaf_static needs mutable self.path inside match
+            let current_leaf_node_obj_clone = current_leaf_node_obj_ref.clone(); 
+
+            if let Node::Leaf { entries, .. } = current_leaf_node_obj_clone {
+                if !args.reverse { // Forward
+                    let entries_in_current_leaf = entries.len();
+                    // If current_leaf_entry_idx is already at/past the end, we must advance leaf first
+                    if current_leaf_entry_idx >= entries_in_current_leaf {
+                        if !Self::advance_cursor_path_to_next_leaf_static(&mut path, &store).await? {
+                            remaining_offset = 0; // No more leaves, consumed all possible offset
+                            current_leaf_entry_idx = entries_in_current_leaf; // Stay at end
+                            break;
+                        }
+                        current_leaf_entry_idx = 0; // Start of new leaf
+                        continue; // Re-evaluate with new leaf
+                    }
+
+                    let remaining_in_leaf = entries_in_current_leaf.saturating_sub(current_leaf_entry_idx);
+
+                    if remaining_offset < remaining_in_leaf as u64 {
+                        current_leaf_entry_idx += remaining_offset as usize;
+                        remaining_offset = 0;
+                    } else {
+                        remaining_offset -= remaining_in_leaf as u64;
+                        // Move to end of current leaf, then advance
+                        current_leaf_entry_idx = entries_in_current_leaf; 
+                        if !Self::advance_cursor_path_to_next_leaf_static(&mut path, &store).await? {
+                            remaining_offset = 0; // No more leaves
+                            break;
+                        }
+                        current_leaf_entry_idx = 0; // Start of new leaf
+                    }
+                } else { // Reverse
+                    // If current_leaf_entry_idx is usize::MAX (before start), advance leaf first
+                    if current_leaf_entry_idx == usize::MAX {
+                        if !Self::advance_cursor_path_to_prev_leaf_static(&mut path, &store).await? {
+                            remaining_offset = 0; // No more leaves
+                            break;
+                        }
+                        // Set to last entry of new leaf
+                        if let Some((_, new_leaf_ref, _)) = path.last() {
+                           if let Node::Leaf{entries: new_entries, ..} = new_leaf_ref { // Borrow new_leaf_ref
+                               current_leaf_entry_idx = new_entries.len().saturating_sub(1);
+                               if new_entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                           } else { break; } // Should be a leaf
+                        } else { break; } // Path became empty
+                        continue; // Re-evaluate with new leaf
+                    }
+                    
+                    let available_to_move_back_in_leaf = current_leaf_entry_idx + 1;
+
+                    if remaining_offset < available_to_move_back_in_leaf as u64 {
+                        current_leaf_entry_idx -= remaining_offset as usize;
+                        remaining_offset = 0;
+                    } else {
+                        remaining_offset -= available_to_move_back_in_leaf as u64;
+                        // Move to before start of current leaf, then advance
+                        current_leaf_entry_idx = usize::MAX; 
+                        if !Self::advance_cursor_path_to_prev_leaf_static(&mut path, &store).await? {
+                            remaining_offset = 0; // No more leaves
+                            break;
+                        }
+                        // Set to last entry of new leaf
+                        if let Some((_, new_leaf_ref, _)) = path.last() {
+                           if let Node::Leaf{entries: new_entries, ..} = new_leaf_ref { // Borrow new_leaf_ref
+                               current_leaf_entry_idx = new_entries.len().saturating_sub(1);
+                               if new_entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                           } else { break; }
+                        } else { break; }
                     }
                 }
             } else {
-                if !args.reverse { 0 } else { children.len() - 1 }
-            };
-            
-            if child_idx_to_descend >= children.len() { // Should be caught by .min() above
-                 // This means key_to_find is beyond all children boundaries (for forward scan)
-                 // Or before all children boundaries (for reverse scan if logic was different)
-                 // Take the last/first child respectively and let offset logic figure it out.
-                let actual_child_idx = if !args.reverse { children.len()-1} else {0};
-                current_hash = children[actual_child_idx].child_hash;
-                current_node_obj = tree.load_node(&current_hash).await?;
-                path.push((current_hash, current_node_obj.clone(), actual_child_idx));
-                break; // Stop descending further based on bounds
+                gloo_console::error!("[Cursor::new_for_scan] Phase 2: Expected leaf node at top of path.");
+                break;
             }
-
-            current_hash = children[child_idx_to_descend].child_hash;
-            current_node_obj = tree.load_node(&current_hash).await?;
-            path.push((current_hash, current_node_obj.clone(), child_idx_to_descend));
+        }
+        // If remaining_offset > 0 here, it means offset exceeded available items.
+        // current_leaf_entry_idx should be at end (forward) or usize::MAX (reverse).
+        if remaining_offset > 0 && !path.is_empty() {
+            if !args.reverse {
+                if let Some((_, leaf_node_ref, _)) = path.last() {
+                    if let Node::Leaf{entries, ..} = leaf_node_ref {
+                        current_leaf_entry_idx = entries.len(); // Past the end
+                    }
+                }
+            } else {
+                current_leaf_entry_idx = usize::MAX; // Before the beginning
+            }
         }
 
-        // Phase 2: Apply offset (count-based traversal)
-        // This logic needs to be careful not to consume `path` prematurely if it's short.
-        if path.len() > 1 { // Only if we have internal nodes to traverse for offset
-            let mut nodes_to_process_for_offset = path.drain(1..).collect::<VecDeque<_>>(); // Nodes below root
-            path.truncate(1); // Keep root in path, rebuild from there
-        }
-        
-        // At this point, path should lead to the correct leaf, and remaining_offset is the offset within it.
-        if let Some((_, final_leaf_node, _)) = path.last() {
-            if let Node::Leaf { entries, .. } = final_leaf_node {
+        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 2: After offset, current_leaf_entry_idx: {:?}", current_leaf_entry_idx));
+
+        // --- Phase 3: Final inclusivity adjustment (relative to bounds) ---
+        if path.last().is_some() {
+            let (_leaf_hash, leaf_node, _parent_idx) = path.last().unwrap();
+            if let Node::Leaf { entries, .. } = leaf_node {
                 if !args.reverse {
-                    if remaining_offset == u64::MAX || remaining_offset >= entries.len() as u64 { // u64::MAX was my OOB signal
-                        current_leaf_entry_idx = entries.len(); // Position at end
-                    } else {
-                        current_leaf_entry_idx = remaining_offset as usize;
-                    }
-                } else { // Reverse
-                    if remaining_offset == u64::MAX { // Signal OOB (before start)
-                        current_leaf_entry_idx = usize::MAX;
-                    } else if remaining_offset >= entries.len() as u64 { // Offset too large from end
-                        current_leaf_entry_idx = usize::MAX; // Position before start
-                    } else {
-                        current_leaf_entry_idx = entries.len().saturating_sub(1).saturating_sub(remaining_offset as usize);
-                    }
-                }
-            } else { /* Should be a leaf if path is not empty */ 
-                // This can happen if tree is empty or offset is huge.
-                // Initialize based on direction if path is empty.
-                if path.is_empty() { // This should have been caught by root_hash.is_none()
-                     current_leaf_entry_idx = if args.reverse { usize::MAX } else { 0 };
-                } else { // Path not empty, but last element isn't leaf - internal error
-                    return Err(ProllyError::InternalError("Scan offset calculation did not end in a leaf node.".to_string()));
-                }
-            }
-        } else { // Path is empty, implies empty tree, already handled.
-             current_leaf_entry_idx = if args.reverse { usize::MAX } else { 0 };
-        }
-
-
-        // Final inclusivity adjustment for the first item if no offset skipping occurred before this point.
-        if args.offset == 0 {
-            if let Some((_, Node::Leaf { entries, .. }, _)) = path.last() {
-                 if !args.reverse {
                     if let Some(sb_val) = &args.start_bound {
-                        // If current_leaf_entry_idx is valid and points to start_bound but not inclusive
-                        if current_leaf_entry_idx < entries.len() && !args.start_inclusive && entries[current_leaf_entry_idx].key == *sb_val {
+                        if current_leaf_entry_idx < entries.len() &&
+                           !args.start_inclusive &&
+                           entries[current_leaf_entry_idx].key == *sb_val {
                             current_leaf_entry_idx = current_leaf_entry_idx.saturating_add(1);
+                            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 3 (Fwd): Adjusted for start_inclusive=false on start_bound, new entry_idx: {}", current_leaf_entry_idx));
                         }
                     }
-                } else { // Reverse
-                    if let Some(eb_val) = &args.end_bound {
-                        // If current_leaf_entry_idx is valid and points to end_bound but not inclusive
+                } else { // Reverse scan
+                    if let Some(sb_val) = &args.start_bound { // start_bound is upper limit
                         if current_leaf_entry_idx != usize::MAX && current_leaf_entry_idx < entries.len() &&
-                           !args.end_inclusive && entries[current_leaf_entry_idx].key == *eb_val {
+                           !args.start_inclusive && 
+                           entries[current_leaf_entry_idx].key == *sb_val {
                             if current_leaf_entry_idx == 0 { current_leaf_entry_idx = usize::MAX; }
                             else { current_leaf_entry_idx = current_leaf_entry_idx.saturating_sub(1); }
+                            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 3 (Rev): Adjusted for start_inclusive=false on start_bound (upper), new entry_idx: {:?}", current_leaf_entry_idx));
                         }
                     }
+                    // No adjustment for end_bound (lower limit) here for reverse;
+                    // next_in_scan handles stopping at end_bound.
                 }
             }
         }
+        gloo_console::debug!(format!("[Cursor::new_for_scan] Final state: current_leaf_entry_idx: {:?}", current_leaf_entry_idx));
+
         Ok(Self { store, config, path, current_leaf_entry_idx })
     }
 
     // next_in_scan needs to be robust
     pub async fn next_in_scan(&mut self, args: &ScanArgs) -> Result<Option<(Key, Value)>> {
-        loop { 
+        gloo_console::debug!(format!("[next_in_scan] BEGIN. reverse: {}, current_leaf_entry_idx: {:?}, path_len: {}", args.reverse, self.current_leaf_entry_idx, self.path.len()));
+
+        loop {
             let current_path_len = self.path.len();
-            if current_path_len == 0 { return Ok(None); } // Empty path means nothing to scan
+            if current_path_len == 0 {
+                gloo_console::debug!("[next_in_scan] Path empty. Returning None.");
+                return Ok(None);
+            }
 
-            let (_leaf_hash, current_leaf_node, _idx_in_parent) = self.path.last().unwrap(); // Safe due to check above
+            // Get current leaf node from the path stack
+            // We clone here to avoid borrowing issues if we need to modify self.path later (e.g., in advance_to_next/prev_leaf)
+            let (_leaf_hash, current_leaf_node_cloned, _idx_in_parent) = self.path.last().unwrap().clone();
 
-            if let Node::Leaf { entries, .. } = current_leaf_node {
+            if let Node::Leaf { ref entries, .. } = current_leaf_node_cloned { // Use 'ref entries'
+                gloo_console::debug!(format!("[next_in_scan] In Leaf. entries.len(): {}, current_idx: {:?}", entries.len(), self.current_leaf_entry_idx));
+
                 let entry_opt: Option<&LeafEntry> = if !args.reverse {
-                    if self.current_leaf_entry_idx >= entries.len() { None }
-                    else { entries.get(self.current_leaf_entry_idx) }
+                    if self.current_leaf_entry_idx >= entries.len() {
+                        gloo_console::debug!(format!("[next_in_scan Fwd] Index {} out of bounds for len {}. entry_opt=None.", self.current_leaf_entry_idx, entries.len()));
+                        None
+                    } else {
+                        gloo_console::debug!(format!("[next_in_scan Fwd] Getting entry at index {}.", self.current_leaf_entry_idx));
+                        entries.get(self.current_leaf_entry_idx)
+                    }
                 } else { // Reverse
-                    if self.current_leaf_entry_idx == usize::MAX || self.current_leaf_entry_idx >= entries.len() { None }
-                    else { entries.get(self.current_leaf_entry_idx) }
+                    if self.current_leaf_entry_idx == usize::MAX || self.current_leaf_entry_idx >= entries.len() {
+                        gloo_console::debug!(format!("[next_in_scan Rev] Index {:?} invalid for len {}. entry_opt=None.", self.current_leaf_entry_idx, entries.len()));
+                        None
+                    } else {
+                        gloo_console::debug!(format!("[next_in_scan Rev] Getting entry at index {}.", self.current_leaf_entry_idx));
+                        entries.get(self.current_leaf_entry_idx)
+                    }
                 };
 
                 if let Some(entry) = entry_opt {
                     let key_ref = &entry.key;
+                    gloo_console::debug!(format!("[next_in_scan] Processing key: {:?}", key_ref));
+
                     // Boundary checks
                     if !args.reverse {
                         if let Some(ref eb) = args.end_bound {
                             match key_ref.cmp(eb) {
-                                Ordering::Greater => return Ok(None), 
-                                Ordering::Equal if !args.end_inclusive => return Ok(None), 
+                                Ordering::Greater => {
+                                    gloo_console::debug!(format!("[next_in_scan Fwd] Key {:?} > end_bound {:?}. Returning None.", key_ref, eb));
+                                    return Ok(None);
+                                }
+                                Ordering::Equal if !args.end_inclusive => {
+                                    gloo_console::debug!(format!("[next_in_scan Fwd] Key {:?} == end_bound {:?} and end_inclusive is false. Returning None.", key_ref, eb));
+                                    return Ok(None);
+                                }
                                 _ => {}
                             }
                         }
-                    } else { 
-                        if let Some(ref sb) = args.start_bound { 
+                    } else { // Reverse
+                        if let Some(ref sb) = args.start_bound { // start_bound is the "upper" bound in reverse
                             match key_ref.cmp(sb) {
-                                Ordering::Less => return Ok(None), 
-                                Ordering::Equal if !args.start_inclusive => return Ok(None),
-                                _ => {}
+                                Ordering::Greater => {
+                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} > start_bound (upper) {:?}. Returning None.", key_ref, sb));
+                                    return Ok(None);
+                                }
+                                Ordering::Equal if !args.start_inclusive => {
+                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} == start_bound (upper) {:?} and start_inclusive is false. Returning None.", key_ref, sb));
+                                    return Ok(None);
+                                }
+                                _ => { /* Key is <= start_bound or (== and inclusive). OK. */ }
+                            }
+                        }
+                        if let Some(ref eb) = args.end_bound { // end_bound is the "lower" bound in reverse
+                            match key_ref.cmp(eb) {
+                                Ordering::Less => {
+                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} < end_bound (lower) {:?}. Returning None.", key_ref, eb));
+                                    return Ok(None);
+                                }
+                                Ordering::Equal if !args.end_inclusive => {
+                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} == end_bound (lower) {:?} and end_inclusive is false. Returning None.", key_ref, eb));
+                                    return Ok(None);
+                                }
+                                _ => { /* Key is >= end_bound or (== and inclusive). OK. */ }
                             }
                         }
                     }
 
+                    gloo_console::debug!(format!("[next_in_scan] Key {:?} passed boundary checks.", key_ref));
                     let value = self.load_value_repr_from_store(&entry.value).await?;
 
                     if !args.reverse {
                         self.current_leaf_entry_idx += 1;
                     } else {
-                        if self.current_leaf_entry_idx == 0 { self.current_leaf_entry_idx = usize::MAX; }
-                        else { self.current_leaf_entry_idx -= 1; }
+                        if self.current_leaf_entry_idx == 0 {
+                            self.current_leaf_entry_idx = usize::MAX; // Mark as before beginning of this leaf
+                        } else {
+                            self.current_leaf_entry_idx -= 1;
+                        }
                     }
+                    gloo_console::debug!(format!("[next_in_scan] Returning Some for key {:?}. New idx: {:?}", key_ref, self.current_leaf_entry_idx));
                     return Ok(Some((entry.key.clone(), value)));
 
-                } else { // End of current leaf in the scan direction
+                } else { // entry_opt was None
+                    gloo_console::debug!("[next_in_scan] entry_opt is None. Advancing leaf.");
                     let advanced: bool = if !args.reverse {
+                        // Need to pass self.path mutably
                         Self::advance_cursor_path_to_next_leaf_static(&mut self.path, &self.store).await?
                     } else {
                         Self::advance_cursor_path_to_prev_leaf_static(&mut self.path, &self.store).await?
                     };
                     
-                    if !advanced { return Ok(None); } 
+                    if !advanced {
+                        gloo_console::debug!("[next_in_scan] No more leaves to advance. Returning None.");
+                        return Ok(None);
+                    }
 
+                    // After advancing, set index to start/end of new leaf
                     if let Some((_, new_leaf_node, _)) = self.path.last() {
                         if let Node::Leaf{entries: new_entries, ..} = new_leaf_node {
-                            self.current_leaf_entry_idx = if !args.reverse { 0 } 
-                                                          else { new_entries.len().saturating_sub(1) };
-                        } else { return Err(ProllyError::InternalError("Advanced cursor path did not end in a leaf".to_string())); }
-                    } else { return Ok(None); /* Should be caught by !advanced */ }
+                            self.current_leaf_entry_idx = if !args.reverse { 0 }
+                                                        else { new_entries.len().saturating_sub(1) };
+                            if args.reverse && new_entries.is_empty() { self.current_leaf_entry_idx = usize::MAX; }
+                            gloo_console::debug!(format!("[next_in_scan] Advanced to new leaf. New idx: {:?}", self.current_leaf_entry_idx));
+                        } else {
+                            gloo_console::error!("[next_in_scan] Advanced cursor path did not end in a leaf.");
+                            return Err(ProllyError::InternalError("Advanced cursor path did not end in a leaf".to_string()));
+                        }
+                    } else { // Path became empty after advance, should have been caught by !advanced
+                        gloo_console::debug!("[next_in_scan] Path empty after trying to advance. Returning None.");
+                        return Ok(None);
+                    }
+                    // Loop again to process the new leaf/index
                 }
-            } else { return Err(ProllyError::InternalError("Cursor path top was not a LeafNode during next_in_scan".to_string())); }
-        } 
+            } else {
+                gloo_console::error!("[next_in_scan] Cursor path top was not a LeafNode.");
+                return Err(ProllyError::InternalError("Cursor path top was not a LeafNode during next_in_scan".to_string()));
+            }
+        } // loop will continue
     }
-    // Original instance method, can now call the static helper
-    async fn advance_to_next_leaf(&mut self) -> Result<bool> {
+
+    // Make sure advance_to_next_leaf and advance_to_prev_leaf are pub(crate) or pub if needed by ProllyTree directly
+    pub(crate) async fn advance_to_next_leaf(&mut self) -> Result<bool> { // Changed to pub(crate)
         let advanced = Self::advance_cursor_path_to_next_leaf_static(&mut self.path, &self.store).await?;
         if advanced {
-            self.current_leaf_entry_idx = 0; // Reset for the new leaf
+            self.current_leaf_entry_idx = 0; 
+        }
+        Ok(advanced)
+    }
+
+    // Add advance_to_prev_leaf if it's not there or make it pub(crate)
+    #[allow(dead_code)] // If not used elsewhere yet
+    pub(crate) async fn advance_to_prev_leaf(&mut self) -> Result<bool> { // Changed to pub(crate)
+        let advanced = Self::advance_cursor_path_to_prev_leaf_static(&mut self.path, &self.store).await?;
+        if advanced {
+            // When moving to a previous leaf, set index to its last entry
+            if let Some((_, new_leaf_node, _)) = self.path.last() {
+                if let Node::Leaf { entries, .. } = new_leaf_node {
+                    self.current_leaf_entry_idx = entries.len().saturating_sub(1);
+                    if entries.is_empty() { self.current_leaf_entry_idx = usize::MAX; }
+                } else {
+                    // Should not happen if path logic is correct
+                    return Err(ProllyError::InternalError("Advanced to previous non-leaf node".to_string()));
+                }
+            } else {
+                // Path became empty, should not happen if advanced is true
+                return Err(ProllyError::InternalError("Path empty after advancing to previous leaf".to_string()));
+            }
         }
         Ok(advanced)
     }
