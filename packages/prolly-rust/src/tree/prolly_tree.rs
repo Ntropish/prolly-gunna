@@ -426,15 +426,13 @@ impl<S: ChunkStore> ProllyTree<S> {
                     let child_delete_result = self.recursive_delete_impl(child_hash, key, child_level, key_actually_deleted_flag).await?;
 
                     match child_delete_result {
-                        DeleteRecursionResult::NotFound { node_hash: _, boundary_key: _ } => {
-                            // Node's item count doesn't change if child reported NotFound.
-                            // Boundary key of this node for ProcessedNodeUpdate if it were to return Updated.
-                            // However, NotFound should propagate if this node itself wasn't the target.
-                            // For simplicity, if a child says NotFound, this node's state hasn't changed structurally.
-                            // The original boundary key is still valid.
-                            let current_node_boundary_key = children.last().map(|ce| ce.boundary_key.clone())
-                                .ok_or_else(|| ProllyError::InternalError("Internal node empty during NotFound propagation".to_string()))?;
-                            Ok(DeleteRecursionResult::NotFound { node_hash, boundary_key: current_node_boundary_key })
+                        DeleteRecursionResult::NotFound { node_hash: _child_hash, boundary_key: _child_boundary } => { // <<< Prefixed here
+                            let current_internal_node_boundary_key = children.last().map(|ce| ce.boundary_key.clone())
+                                .ok_or_else(|| ProllyError::InternalError("Internal node empty during NotFound propagation from child".to_string()))?;
+                            Ok(DeleteRecursionResult::NotFound {
+                                node_hash, // original hash of *this* internal node
+                                boundary_key: current_internal_node_boundary_key,
+                            })
                         }
                         DeleteRecursionResult::Updated(child_update) => {
                             children[child_idx_to_descend].child_hash = child_update.new_hash;
@@ -857,60 +855,6 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok(())
     }
 
-    /// Helper to merge two adjacent siblings (`right_idx` into `left_idx`).
-    /// Modifies the left child node, updates the parent's entry for the left child,
-    /// and removes the parent's entry for the right child.
-    async fn merge_siblings(
-        &mut self,
-        children: &mut Vec<InternalEntry>, // Parent's children list
-        left_idx: usize,
-        right_idx: usize,
-   ) -> Result<()> {
-       // Ensure indices are adjacent
-       if left_idx + 1 != right_idx {
-           return Err(ProllyError::InternalError(format!("Attempted to merge non-adjacent siblings: {} and {}", left_idx, right_idx)));
-       }
-
-       let left_hash = children[left_idx].child_hash;
-       let right_hash = children[right_idx].child_hash; // Hash of node to remove
-
-       // Load the nodes
-       let mut left_node = self.load_node(&left_hash).await?;
-       let right_node = self.load_node(&right_hash).await?;
-
-       // Perform the merge based on node type
-       match (&mut left_node, right_node) {
-           (Node::Leaf { entries: left_entries, .. }, Node::Leaf { entries: mut right_entries, .. }) => {
-               left_entries.append(&mut right_entries);
-               // Optional check if merged node exceeds MAX fanout - shouldn't happen if merge follows underflow rules
-               // if left_entries.len() > self.config.target_fanout * 2 { // rough check
-               //     // This indicates a potential logic error elsewhere or very skewed borrowing
-               //     return Err(ProllyError::InternalError("Node exceeds max size after merge".to_string()));
-               // }
-           }
-           (Node::Internal { children: left_children, .. }, Node::Internal { children: mut right_children, .. }) => {
-                left_children.append(&mut right_children);
-                // Optional check if merged node exceeds MAX fanout
-           }
-           _ => return Err(ProllyError::InternalError("Sibling nodes have different types or levels during merge".to_string())),
-       }
-
-       // Store the newly merged left node
-       let (new_left_boundary, new_left_hash) = self.store_node_and_get_key_hash_pair(&left_node).await?;
-
-       // Update the parent's entry for the left sibling
-       children[left_idx].boundary_key = new_left_boundary;
-       children[left_idx].child_hash = new_left_hash;
-
-       // Remove the parent's entry for the right sibling
-       children.remove(right_idx);
-
-       // TODO: Garbage Collection - the node chunk identified by `right_hash` is now orphaned.
-       // A separate GC process would be needed to find and delete such chunks from the store.
-
-       Ok(())
-   }
-
     pub async fn commit(&mut self) -> Result<Option<Hash>> { // Public
         Ok(self.root_hash)
     }
@@ -1028,13 +972,12 @@ impl<S: ChunkStore> ProllyTree<S> {
             final_has_next_page = false;
         }
 
-        let has_previous_page = args.offset > 0;
 
         Ok(ScanPage {
             items: collected_items,
             has_next_page: final_has_next_page,
-            has_previous_page,
-            next_page_cursor: actual_next_item_key_for_cursor, // <<< ensure this is used
+            has_previous_page: args.offset > 0, 
+            next_page_cursor: if final_has_next_page { last_item_key } else { None }, // Use the actual last key of this page
             previous_page_cursor: first_item_key,
         })
     }

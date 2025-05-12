@@ -24,12 +24,11 @@ pub mod gc;
 use crate::tree::ProllyTree;
 use crate::store::InMemoryStore;
 use crate::tree::Cursor; 
-use tokio::sync::Mutex; 
 use crate::common::{TreeConfig, Key, Value, Hash};
 use crate::error::ProllyError;
 use crate::diff::DiffEntry;
 
-use crate::tree::prolly_tree::{ScanArgs, ScanPage}; 
+use crate::tree::prolly_tree::ScanArgs;
 
 // Helper to convert ProllyError to JsValue
 fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {

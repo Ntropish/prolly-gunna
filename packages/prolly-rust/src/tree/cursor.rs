@@ -346,67 +346,6 @@ impl<S: ChunkStore> Cursor<S> {
         if path.len() > 1 { // Only if we have internal nodes to traverse for offset
             let mut nodes_to_process_for_offset = path.drain(1..).collect::<VecDeque<_>>(); // Nodes below root
             path.truncate(1); // Keep root in path, rebuild from there
-
-            let mut current_parent_node = path.first().map(|(_, node, _)| node.clone()).unwrap(); // Should be root
-
-            while let Some((node_hash_on_path, mut node_on_path, _idx_in_parent_on_path)) = nodes_to_process_for_offset.pop_front() {
-                 path.push((node_hash_on_path, node_on_path.clone(), _idx_in_parent_on_path)); // Add to final path
-                 current_parent_node = node_on_path.clone(); // Update current parent for next iteration's children
-
-                if args.reverse { // REVERSE OFFSET
-                    // Check children of current_parent_node from right to left
-                    if let Node::Internal { children, .. } = current_parent_node {
-                        let mut child_found_for_offset_descent = false;
-                        for (child_idx, child_entry) in children.iter().enumerate().rev() {
-                            if remaining_offset < child_entry.num_items_subtree {
-                                // Target is in this child's subtree. We need to descend into it.
-                                // Replace remaining items in nodes_to_process_for_offset with this child's path.
-                                nodes_to_process_for_offset.clear();
-                                let mut sub_path = vec![(child_entry.child_hash, tree.load_node(&child_entry.child_hash).await?, child_idx)];
-                                while let Node::Internal { children: sub_c, .. } = &sub_path.last().unwrap().1 {
-                                    if sub_c.is_empty() { break; }
-                                    let sub_c_idx = sub_c.len() -1; // Always take rightmost for reverse descent
-                                    sub_path.push((sub_c[sub_c_idx].child_hash, tree.load_node(&sub_c[sub_c_idx].child_hash).await?, sub_c_idx));
-                                }
-                                for item in sub_path.into_iter().rev() { nodes_to_process_for_offset.push_front(item); }
-                                child_found_for_offset_descent = true;
-                                break;
-                            } else {
-                                remaining_offset -= child_entry.num_items_subtree;
-                            }
-                        }
-                        if !child_found_for_offset_descent { // Offset is before all children of this node
-                            remaining_offset = u64::MAX; // Signal out of bounds / before start
-                            break;
-                        }
-                    } else { /* node_on_path is a Leaf, offset applies directly */ break; }
-                } else { // FORWARD OFFSET
-                    if let Node::Internal { children, .. } = current_parent_node {
-                        let mut child_found_for_offset_descent = false;
-                        for (child_idx, child_entry) in children.iter().enumerate() {
-                            if remaining_offset < child_entry.num_items_subtree {
-                                nodes_to_process_for_offset.clear();
-                                let mut sub_path = vec![(child_entry.child_hash, tree.load_node(&child_entry.child_hash).await?, child_idx)];
-                                while let Node::Internal { children: sub_c, .. } = &sub_path.last().unwrap().1 {
-                                     if sub_c.is_empty() { break; }
-                                     let sub_c_idx = 0; // Always take leftmost for forward descent
-                                     sub_path.push((sub_c[sub_c_idx].child_hash, tree.load_node(&sub_c[sub_c_idx].child_hash).await?, sub_c_idx));
-                                }
-                                for item in sub_path.into_iter().rev() { nodes_to_process_for_offset.push_front(item); }
-                                child_found_for_offset_descent = true;
-                                break;
-                            } else {
-                                remaining_offset -= child_entry.num_items_subtree;
-                            }
-                        }
-                        if !child_found_for_offset_descent {
-                            remaining_offset = u64::MAX; // Signal out of bounds / past end
-                            break;
-                        }
-                    } else { /* node_on_path is a Leaf */ break; }
-                }
-                 if remaining_offset == u64::MAX { break; } // Break outer while if out of bounds
-            }
         }
         
         // At this point, path should lead to the correct leaf, and remaining_offset is the offset within it.
