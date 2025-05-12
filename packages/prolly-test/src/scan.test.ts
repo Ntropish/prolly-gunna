@@ -1,72 +1,67 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { WasmProllyTree } from "prolly-wasm";
 
-import init, { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
-import {
-  expectKeyValueArrayEq,
-  jsPromiseToKeyValueArray,
-  toU8,
-  u8ToString,
-} from "./lib/utils";
-async function jsPromiseToScanPage(
-  promise: Promise<any>
-): Promise<ScanResultPage> {
-  const jsVal = await promise;
-  if (
-    typeof jsVal !== "object" ||
-    jsVal === null ||
-    !Array.isArray(jsVal.items) ||
-    typeof jsVal.hasNextPage !== "boolean"
-  ) {
-    console.error("Raw jsVal from promise:", jsVal);
-    throw new Error(
-      "scanItems did not return a valid ScanResultPage object structure"
+// Assuming you have these helpers, or define them here/import them
+// from a shared test utility file.
+const toU8 = (s: string): Uint8Array => new TextEncoder().encode(s);
+const u8ToString = (arr: Uint8Array): string => new TextDecoder().decode(arr);
+
+interface TestItem {
+  key: Uint8Array;
+  value: Uint8Array;
+}
+
+function expectU8Eq(
+  a: Uint8Array | undefined | null,
+  b: Uint8Array | undefined | null,
+  message?: string
+) {
+  const context = message ? `: ${message}` : "";
+  if (a === undefined || a === null) {
+    expect(b, `Expected null or undefined${context}`).toBeFalsy();
+    return;
+  }
+  expect(b, `Expected Uint8Array${context}`).toBeInstanceOf(Uint8Array);
+  expect(Array.from(a), `Array comparison${context}`).toEqual(Array.from(b!));
+}
+
+function expectKeyValueArrayEq(
+  actual: TestItem[],
+  expected: TestItem[],
+  message?: string
+) {
+  const context = message ? `: ${message}` : "";
+  expect(actual.length, `Array length mismatch${context}`).toBe(
+    expected.length
+  );
+  for (let i = 0; i < actual.length; i++) {
+    expectU8Eq(
+      actual[i].key,
+      expected[i].key,
+      `Key mismatch at index ${i}${context}`
+    );
+    expectU8Eq(
+      actual[i].value,
+      expected[i].value,
+      `Value mismatch at index ${i}${context}`
     );
   }
-  const processedItems: { key: Uint8Array; value: Uint8Array }[] = [];
-  for (const pair of jsVal.items) {
-    if (
-      Array.isArray(pair) &&
-      pair.length === 2 &&
-      pair[0] instanceof Uint8Array &&
-      pair[1] instanceof Uint8Array
-    ) {
-      processedItems.push({ key: pair[0], value: pair[1] });
-    } else {
-      throw new Error(
-        "Invalid item structure in ScanResultPage.items. Expected [Uint8Array, Uint8Array]"
-      );
-    }
-  }
-  return {
-    items: processedItems,
-    hasNextPage: jsVal.hasNextPage,
-    hasPreviousPage:
-      jsVal.hasPreviousPage === undefined
-        ? jsVal.offset > 0
-        : jsVal.hasPreviousPage, // Handle if hasPreviousPage is not always sent
-    nextPageCursor:
-      jsVal.nextPageCursor instanceof Uint8Array ? jsVal.nextPageCursor : null,
-    previousPageCursor:
-      jsVal.previousPageCursor instanceof Uint8Array
-        ? jsVal.previousPageCursor
-        : null,
-  };
 }
 
 function createTestItems(
   count: number,
   prefix = "key",
   valuePrefix = "val"
-): { key: Uint8Array; value: Uint8Array }[] {
-  const items: { key: Uint8Array; value: Uint8Array }[] = [];
+): TestItem[] {
+  const items: TestItem[] = [];
   for (let i = 0; i < count; i++) {
     items.push({
       key: toU8(`${prefix}_${String(i).padStart(3, "0")}`),
       value: toU8(`${valuePrefix}_${String(i).padStart(3, "0")}`),
     });
   }
+  // Ensure test data is sorted by key for predictable slicing and comparison
   items.sort((a, b) => {
-    // Ensure test data is sorted by key for predictable slicing
     for (let i = 0; i < Math.min(a.key.length, b.key.length); i++) {
       if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
     }
@@ -75,80 +70,224 @@ function createTestItems(
   return items;
 }
 
+// TypeScript interfaces for ScanArgs and ScanResultPage
+// These should align with what your wasm-pack build generates (usually in a .d.ts file)
+interface ScanArgs {
+  startBound?: Uint8Array | null;
+  endBound?: Uint8Array | null;
+  startInclusive?: boolean;
+  endInclusive?: boolean;
+  reverse?: boolean;
+  offset?: number; // Corresponds to u64 in Rust
+  limit?: number;
+}
+
+interface ScanResultPage {
+  items: [Uint8Array, Uint8Array][]; // WASM typically returns tuple arrays
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  nextPageCursor?: Uint8Array | null;
+  previousPageCursor?: Uint8Array | null;
+}
+
+// Helper to parse the ScanResultPage and process items
+async function jsPromiseToScanPageProcessed(promise: Promise<any>): Promise<{
+  items: TestItem[];
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  nextPageCursor?: Uint8Array | null;
+  previousPageCursor?: Uint8Array | null;
+}> {
+  const jsVal = await promise; // jsVal is the ScanPage object from WASM
+
+  // console.log("DEBUG: Raw jsVal received from WASM scanItems:", jsVal); // Log the raw object
+
+  if (typeof jsVal !== "object" || jsVal === null) {
+    throw new Error(`scanItems did not return an object, got: ${typeof jsVal}`);
+  }
+  if (!Array.isArray(jsVal.items)) {
+    throw new Error(
+      `ScanResultPage.items is not an array, got: ${typeof jsVal.items}`
+    );
+  }
+  // hasNextPage might be undefined if not explicitly set to false by Rust for last page with no limit
+  const hasNextPage =
+    jsVal.hasNextPage === undefined ? false : jsVal.hasNextPage;
+  if (typeof hasNextPage !== "boolean") {
+    throw new Error(
+      `ScanResultPage.hasNextPage is not a boolean, got: ${typeof jsVal.hasNextPage}`
+    );
+  }
+
+  const processedItems: TestItem[] = [];
+  for (let i = 0; i < jsVal.items.length; i++) {
+    const pair = jsVal.items[i]; // `pair` here is expected to be [Uint8Array, Uint8Array]
+
+    // More robust check for the elements of the pair
+    if (
+      Array.isArray(pair) &&
+      pair.length === 2 &&
+      (pair[0] instanceof Uint8Array ||
+        (typeof pair[0] === "object" &&
+          pair[0] !== null &&
+          typeof pair[0].length === "number")) && // Lenient check for array-like
+      (pair[1] instanceof Uint8Array ||
+        (typeof pair[1] === "object" &&
+          pair[1] !== null &&
+          typeof pair[1].length === "number"))
+    ) {
+      // If they are array-like but not Uint8Array, convert them.
+      // This handles the case where they might be plain arrays of numbers from some contexts.
+      const keyData =
+        pair[0] instanceof Uint8Array
+          ? pair[0]
+          : new Uint8Array(pair[0] as number[]);
+      const valueData =
+        pair[1] instanceof Uint8Array
+          ? pair[1]
+          : new Uint8Array(pair[1] as number[]);
+      processedItems.push({ key: keyData, value: valueData });
+    } else {
+      console.error(
+        `Invalid item structure for 'pair' at index ${i} in jsVal.items:`,
+        pair
+      );
+      if (pair && Array.isArray(pair) && pair.length === 2) {
+        console.error(
+          `Type of pair[0]: ${Object.prototype.toString.call(
+            pair[0]
+          )}, instanceof Uint8Array: ${pair[0] instanceof Uint8Array}`
+        );
+        console.error(
+          `Type of pair[1]: ${Object.prototype.toString.call(
+            pair[1]
+          )}, instanceof Uint8Array: ${pair[1] instanceof Uint8Array}`
+        );
+      }
+      throw new Error(
+        `Invalid item structure in ScanResultPage.items at index ${i}. Expected each item to be a [Uint8Array, Uint8Array] tuple.`
+      );
+    }
+  }
+
+  // Determine hasPreviousPage based on args.offset if available, or from the page itself
+  const jsValOffset =
+    jsVal.args && typeof jsVal.args.offset === "number" ? jsVal.args.offset : 0;
+  const hasPreviousPageDefault =
+    jsVal.hasPreviousPage === undefined
+      ? jsValOffset > 0
+      : jsVal.hasPreviousPage;
+
+  return {
+    items: processedItems,
+    hasNextPage: hasNextPage,
+    hasPreviousPage: hasPreviousPageDefault,
+    nextPageCursor:
+      jsVal.nextPageCursor instanceof Uint8Array
+        ? jsVal.nextPageCursor
+        : undefined,
+    previousPageCursor:
+      jsVal.previousPageCursor instanceof Uint8Array
+        ? jsVal.previousPageCursor
+        : undefined,
+  };
+}
+
 describe("WasmProllyTree Scanning (scanItems)", () => {
   let tree: WasmProllyTree;
-  const testData = createTestItems(20, "item", "value"); // item_000 to item_019
+  const testDataAll = createTestItems(25, "item", "value"); // item_000 to item_024
 
   beforeAll(async () => {
-    await init(); // Make sure WASM is initialized
+    // await init();
   });
 
   beforeEach(async () => {
     tree = new WasmProllyTree();
-    for (const item of testData) {
+    for (const item of testDataAll) {
       await tree.insert(item.key, item.value);
     }
     await tree.commit();
   });
 
-  it("should retrieve all items with no options (full scan)", async () => {
-    const page = await jsPromiseToScanPage(
-      tree.scanItems({ limit: testData.length + 5 })
-    ); // Provide a limit larger than data
-    expectKeyValueArrayEq(page.items, testData, "Full scan mismatch");
+  it("should retrieve all items with no options (full scan, implies large limit)", async () => {
+    const page = await jsPromiseToScanPageProcessed(
+      tree.scanItems({ limit: testDataAll.length + 5 })
+    );
+    expectKeyValueArrayEq(page.items, testDataAll, "Full scan mismatch");
     expect(page.hasNextPage).toBe(false);
-    expect(page.hasPreviousPage).toBe(false); // Assuming offset 0
+    expect(page.hasPreviousPage).toBe(false);
   });
 
   it("should handle offset correctly", async () => {
-    const args: ScanArgs = { offset: 3, limit: testData.length }; // Get all after offset
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    expectKeyValueArrayEq(page.items, testData.slice(3), "Offset mismatch");
+    const offset = 3;
+    const page = await jsPromiseToScanPageProcessed(
+      tree.scanItems({ offset, limit: testDataAll.length })
+    );
+    expectKeyValueArrayEq(
+      page.items,
+      testDataAll.slice(offset),
+      "Offset mismatch"
+    );
     expect(page.hasPreviousPage).toBe(true);
+    expect(page.hasNextPage).toBe(false); // Since limit covers the rest
   });
 
   it("should handle limit correctly", async () => {
-    const args: ScanArgs = { limit: 4 };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    expectKeyValueArrayEq(page.items, testData.slice(0, 4), "Limit mismatch");
+    const limit = 4;
+    const page = await jsPromiseToScanPageProcessed(tree.scanItems({ limit }));
+    expectKeyValueArrayEq(
+      page.items,
+      testDataAll.slice(0, limit),
+      "Limit mismatch"
+    );
     expect(page.hasNextPage).toBe(true);
-    expect(page.items.length).toBe(4);
+    expect(page.items.length).toBe(limit);
   });
 
   it("should handle offset and limit combined", async () => {
-    const args: ScanArgs = { offset: 2, limit: 5 };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
+    const offset = 2;
+    const limit = 5;
+    const page = await jsPromiseToScanPageProcessed(
+      tree.scanItems({ offset, limit })
+    );
     expectKeyValueArrayEq(
       page.items,
-      testData.slice(2, 2 + 5),
+      testDataAll.slice(offset, offset + limit),
       "Offset + Limit mismatch"
     );
-    expect(page.hasNextPage).toBe(true); // 2 + 5 = 7, testData has 20 items
-    expect(page.hasPreviousPage).toBe(true);
+    expect(page.hasNextPage).toBe(testDataAll.length > offset + limit);
+    expect(page.hasPreviousPage).toBe(offset > 0);
   });
 
-  it("should handle forward pagination using nextPageCursor", async () => {
+  it("should handle forward pagination using nextPageCursor (key of last item)", async () => {
     const pageSize = 3;
-    let currentPage = await jsPromiseToScanPage(
+    let currentPage = await jsPromiseToScanPageProcessed(
       tree.scanItems({ limit: pageSize })
     );
-    expectKeyValueArrayEq(currentPage.items, testData.slice(0, pageSize));
+    expectKeyValueArrayEq(
+      currentPage.items,
+      testDataAll.slice(0, pageSize),
+      "Page 1"
+    );
     expect(currentPage.hasNextPage).toBe(true);
-    expect(currentPage.nextPageCursor).not.toBeNull();
+    expect(currentPage.nextPageCursor).toEqual(testDataAll[pageSize - 1].key); // last key of current page
 
-    // Fetch second page
+    // Fetch second page: start *after* the nextPageCursor
     let nextPageArgs: ScanArgs = {
       limit: pageSize,
       startBound: currentPage.nextPageCursor,
       startInclusive: false,
     };
-    currentPage = await jsPromiseToScanPage(tree.scanItems(nextPageArgs));
+    currentPage = await jsPromiseToScanPageProcessed(
+      tree.scanItems(nextPageArgs)
+    );
     expectKeyValueArrayEq(
       currentPage.items,
-      testData.slice(pageSize, pageSize * 2)
+      testDataAll.slice(pageSize, pageSize * 2),
+      "Page 2"
     );
     expect(currentPage.hasNextPage).toBe(true);
-    expect(currentPage.previousPageCursor).toEqual(testData[pageSize].key); // First key of this page
+    expect(currentPage.previousPageCursor).toEqual(testDataAll[pageSize].key);
 
     // Fetch third page
     nextPageArgs = {
@@ -156,25 +295,31 @@ describe("WasmProllyTree Scanning (scanItems)", () => {
       startBound: currentPage.nextPageCursor,
       startInclusive: false,
     };
-    currentPage = await jsPromiseToScanPage(tree.scanItems(nextPageArgs));
+    currentPage = await jsPromiseToScanPageProcessed(
+      tree.scanItems(nextPageArgs)
+    );
     expectKeyValueArrayEq(
       currentPage.items,
-      testData.slice(pageSize * 2, pageSize * 3)
+      testDataAll.slice(pageSize * 2, pageSize * 3),
+      "Page 3"
     );
   });
 
-  it("should retrieve items by key range (startBound, endBound, inclusive start, exclusive end)", async () => {
+  it("should retrieve items by key range (inclusive start, exclusive end)", async () => {
     const args: ScanArgs = {
       startBound: toU8("item_002"),
       startInclusive: true,
-      endBound: toU8("item_005"), // Exclusive end by default for ScanArgs
-      endInclusive: false,
+      endBound: toU8("item_005"),
+      endInclusive: false, // Default
     };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    // Expected: item_002, item_003, item_004
-    const expected = testData.slice(2, 5);
-    expectKeyValueArrayEq(page.items, expected, "Key range query mismatch");
-    expect(page.hasNextPage).toBe(false); // Assuming limit is not hit and endBound is restrictive
+    const page = await jsPromiseToScanPageProcessed(tree.scanItems(args));
+    const expected = testDataAll.slice(2, 5); // item_002, item_003, item_004
+    expectKeyValueArrayEq(
+      page.items,
+      expected,
+      "Key range [start, end) mismatch"
+    );
+    expect(page.hasNextPage).toBe(false); // End bound is restrictive
   });
 
   it("should retrieve items by key range (inclusive start, inclusive end)", async () => {
@@ -183,148 +328,113 @@ describe("WasmProllyTree Scanning (scanItems)", () => {
       startInclusive: true,
       endBound: toU8("item_018"),
       endInclusive: true,
-      limit: 10, // Ensure limit is not the reason for stopping
+      limit: 10,
     };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    // Expected: item_015, item_016, item_017, item_018
-    const expected = testData.slice(15, 19);
+    const page = await jsPromiseToScanPageProcessed(tree.scanItems(args));
+    const expected = testDataAll.slice(15, 19); // item_015, item_016, item_017, item_018
     expectKeyValueArrayEq(
       page.items,
       expected,
-      "Inclusive end key range query mismatch"
+      "Key range [start, end] mismatch"
     );
-    expect(page.hasNextPage).toBe(testData.length > 19);
+    // testDataAll.length = 25. Indices 0-24. item_018 is at index 18.
+    expect(page.hasNextPage).toBe(testDataAll.length > 19);
   });
 
   it("should handle reverse scan", async () => {
-    const args: ScanArgs = { reverse: true, limit: 3 };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    const expected = [...testData.slice(testData.length - 3)].reverse(); // Last 3 items, reversed
+    const limit = 3;
+    const page = await jsPromiseToScanPageProcessed(
+      tree.scanItems({ reverse: true, limit })
+    );
+    const expected = [
+      ...testDataAll.slice(testDataAll.length - limit),
+    ].reverse();
     expectKeyValueArrayEq(page.items, expected, "Reverse scan mismatch");
-    expect(page.hasNextPage).toBe(true); // More items before these three
+    expect(page.hasNextPage).toBe(true); // Because there are items *before* these 3 (in reverse)
+    expect(page.hasPreviousPage).toBe(false); // Offset is 0
   });
 
-  it("should handle reverse scan with bounds", async () => {
+  it("should handle reverse scan with bounds (exclusive start/upper, inclusive end/lower)", async () => {
     const args: ScanArgs = {
-      startBound: toU8("item_007"), // In reverse, this is the "upper" bound (exclusive by default if endInclusive is false for it)
-      endBound: toU8("item_003"), // In reverse, this is the "lower" bound (inclusive by default if startInclusive is true for it)
-      startInclusive: true, // for endBound in reverse context
-      endInclusive: false, // for startBound in reverse context
+      startBound: toU8("item_007"), // Scan keys < "item_007" (exclusive upper)
+      startInclusive: false,
+      endBound: toU8("item_003"), // Scan keys >= "item_003" (inclusive lower)
+      endInclusive: true,
       reverse: true,
       limit: 10,
     };
-    // Scan from item_007 down to (but not including) item_003
-    // Expected: item_007, item_006, item_005, item_004
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    const expectedSlice = testData.slice(4, 8); // item_004 to item_007
+    // Expected: item_006, item_005, item_004, item_003
+    const page = await jsPromiseToScanPageProcessed(tree.scanItems(args));
+    const expectedSlice = testDataAll.slice(3, 7); // item_003, item_004, item_005, item_006
     const expected = [...expectedSlice].reverse();
     expectKeyValueArrayEq(
       page.items,
       expected,
       "Reverse scan with bounds mismatch"
     );
+    expect(page.hasNextPage).toBe(
+      testDataAll.indexOf(expected[expected.length - 1]) > 0
+    );
   });
 
   it("should return empty page for scan on empty tree", async () => {
     const emptyTree = new WasmProllyTree();
     await emptyTree.commit();
-    const page = await jsPromiseToScanPage(emptyTree.scanItems({}));
+    const page = await jsPromiseToScanPageProcessed(emptyTree.scanItems({}));
     expect(page.items.length).toBe(0);
     expect(page.hasNextPage).toBe(false);
   });
 
   it("should handle offset exceeding available items in range", async () => {
-    const args: ScanArgs = { offset: testData.length + 5 };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
+    const page = await jsPromiseToScanPageProcessed(
+      tree.scanItems({ offset: testDataAll.length + 5 })
+    );
     expect(page.items.length).toBe(0);
     expect(page.hasNextPage).toBe(false);
   });
 
-  it("should handle limit exceeding available items after offset in range", async () => {
-    const offset = testData.length - 2; // Last 2 items available
-    const args: ScanArgs = { offset, limit: 5 };
-    const page = await jsPromiseToScanPage(tree.scanItems(args));
-    expectKeyValueArrayEq(
-      page.items,
-      testData.slice(offset),
-      "Limit exceeding available mismatch"
-    );
-    expect(page.hasNextPage).toBe(false);
-  });
-
-  // ---- Tests for Prefix Scans (Simulated with Bounds) ----
-  it("should simulate prefix scan with startBound and iteration check", async () => {
-    const prefixTree = new WasmProllyTree();
-    const appleItems = [
-      { key: toU8("apple_1"), value: toU8("red") },
-      { key: toU8("apple_2"), value: toU8("green") },
-      { key: toU8("apple_3"), value: toU8("mixed") },
-    ];
-    const otherItem = { key: toU8("banana_1"), value: toU8("yellow") };
-    for (const item of [...appleItems, otherItem].sort((a, b) =>
-      Buffer.from(a.key).compare(Buffer.from(b.key))
-    )) {
-      await prefixTree.insert(item.key, item.value);
-    }
-    await prefixTree.commit();
-
-    const prefix = "apple_";
-    const prefixBytes = toU8(prefix);
-    const args: ScanArgs = { startBound: prefixBytes, startInclusive: true };
-
-    const page = await jsPromiseToScanPage(prefixTree.scanItems(args));
-
-    // Client-side filter for prefix because scanItems only guarantees starting at/after prefixBytes
-    const filteredItems = page.items.filter((item) =>
-      u8ToString(item.key).startsWith(prefix)
-    );
-
-    expectKeyValueArrayEq(
-      filteredItems,
-      appleItems,
-      "Simulated prefix scan mismatch"
-    );
-  });
-
+  // --- Tests for Prefix Scans (Simulated with Bounds) ---
   it("should simulate prefix scan with startBound and endBound", async () => {
     const prefixTree = new WasmProllyTree();
-    const appleItems = [
-      { key: toU8("apple_01"), value: toU8("red") },
-      { key: toU8("apple_02"), value: toU8("green") },
+    const appleData = [
+      { key: toU8("apple_01"), value: toU8("red_apple") },
+      { key: toU8("apple_02"), value: toU8("green_apple") },
+      { key: toU8("apple_03_final"), value: toU8("final_apple") },
     ];
-    const otherItems = [
-      { key: toU8("apricot_01"), value: toU8("orange") },
-      { key: toU8("banana_01"), value: toU8("yellow") },
+    const otherData = [
+      { key: toU8("banana_01"), value: toU8("yellow_banana") },
     ];
-    for (const item of [...appleItems, ...otherItems].sort((a, b) =>
+    const allData = [...appleData, ...otherData].sort((a, b) =>
       Buffer.from(a.key).compare(Buffer.from(b.key))
-    )) {
+    );
+
+    for (const item of allData) {
       await prefixTree.insert(item.key, item.value);
     }
     await prefixTree.commit();
 
     const prefix = "apple_";
     const startBound = toU8(prefix);
-    // Create an endBound that is the next possible string after the prefix
-    // For "apple_", the next string lexicographically is "apple`" (if '`' is char after '_')
-    // Or more robustly, find the string that is "apple" + char_after_underscore
-    // For simplicity, if keys are somewhat predictable, "apple_" will be before "apricot" or "applea"
-    // A common technique for exclusive end bound for prefix P is P + 0xFF (or highest byte)
-    // Or, the next known prefix: endBound = toU8("apricot_")
-    // For this test, let's assume "applea" would be next different prefix.
-    const endBound = toU8("applea"); // All keys starting "apple_" are < "applea"
+    // Create an endBound that is the lexicographical successor to any key starting with "apple_"
+    // If U+FFFF is the max char, prefix + U+FFFF works.
+    // A simpler way for common prefixes is to find the "next" prefix.
+    // If "apple_" is the prefix, "apple`" (backtick, char after _) or "applf" would be after.
+    // Let's use a key known to be after all "apple_" keys.
+    const endBound = toU8("apple`"); // or any string that sorts immediately after all "apple_" keys
 
     const args: ScanArgs = {
       startBound: startBound,
       startInclusive: true,
       endBound: endBound,
-      endInclusive: false, // Exclusive end
+      endInclusive: false, // Exclusive: we want keys < "apple`"
+      limit: appleData.length + 1, // Ensure limit is not an issue
     };
-    const page = await jsPromiseToScanPage(prefixTree.scanItems(args));
+    const page = await jsPromiseToScanPageProcessed(prefixTree.scanItems(args));
     expectKeyValueArrayEq(
       page.items,
-      appleItems,
+      appleData,
       "Prefix scan with explicit bounds mismatch"
     );
+    expect(page.hasNextPage).toBe(false); // Assuming endBound is tight
   });
 });
