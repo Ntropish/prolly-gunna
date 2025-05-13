@@ -15,6 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useDownloadScanAsJsonlMutation } from "@/hooks/useTreeMutations";
+import type { ScanArgsWasm } from "@/lib/types";
+import { Download } from "lucide-react";
 
 // --- Helper: useDebounce Hook ---
 function useDebounce<T>(value: T, delay: number): T {
@@ -56,6 +59,7 @@ interface ScanPage {
 
 interface VirtualizedTreeItemsProps {
   tree: WasmProllyTree | null;
+  treeId: string;
   currentRoot: string | null;
   height?: string;
   itemHeight?: number;
@@ -81,6 +85,7 @@ const ITEMS_PER_PAGE = 50;
 // --- Main Component ---
 export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   tree,
+  treeId,
   currentRoot,
   height = "400px",
   itemHeight = 60,
@@ -97,16 +102,23 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   const debouncedStartInclusive = useDebounce(startInclusiveInput, 500);
   const debouncedEndInclusive = useDebounce(endInclusiveInput, 500);
 
-  const appliedScanArgs = useMemo<Omit<ScanArgs, "offset" | "limit">>(() => {
+  const appliedScanArgs = useMemo<
+    Omit<ScanArgsWasm, "offset" | "limit">
+  >(() => {
+    const startKey = debouncedStartKeyInput.trim();
+    const endKey = debouncedEndKeyInput.trim();
+
+    // Ensure that if toU8 were to return null (which it shouldn't for string inputs based on its current prollyUtils def),
+    // it's converted to undefined. The main goal is to eliminate `null` from the type.
+    const startBoundValue = startKey ? toU8(startKey) : undefined;
+    const endBoundValue = endKey ? toU8(endKey) : undefined;
+
     return {
-      startBound: debouncedStartKeyInput.trim()
-        ? toU8(debouncedStartKeyInput.trim())
-        : null,
-      endBound: debouncedEndKeyInput.trim()
-        ? toU8(debouncedEndKeyInput.trim())
-        : null,
+      startBound: startBoundValue, // Explicitly Uint8Array | undefined
+      endBound: endBoundValue, // Explicitly Uint8Array | undefined
       startInclusive: debouncedStartInclusive,
       endInclusive: debouncedEndInclusive,
+      // reverse: false, // Add if you implement reverse toggle
     };
   }, [
     debouncedStartKeyInput,
@@ -241,6 +253,17 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
     fetchNextPage,
     allDisplayItems.length,
   ]);
+
+  const downloadScanMutation = useDownloadScanAsJsonlMutation();
+
+  const handleDownloadScan = () => {
+    if (!tree) {
+      toast.error("Tree instance not available for download.");
+      return;
+    }
+    // appliedScanArgs is already Omit<ScanArgsWasm, "offset" | "limit">
+    downloadScanMutation.mutate({ tree, treeId, scanArgs: appliedScanArgs });
+  };
 
   const handleClearFilters = () => {
     setStartKeyInput("");
@@ -488,7 +511,32 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 justify-start pt-2">
+          <div className="flex flex-col gap-2 justify-start pt-2 justify-end">
+            <Button
+              onClick={handleDownloadScan}
+              size="sm"
+              variant="outline"
+              className="h-9"
+              disabled={
+                downloadScanMutation.isPending ||
+                isLoadingItems ||
+                isLoadingFilteredCount ||
+                (filteredTotalItems ?? 0) === 0
+              }
+              title={
+                (filteredTotalItems ?? 0) === 0
+                  ? "No items in current scan to download"
+                  : "Download current scan results as JSONL"
+              }
+            >
+              {downloadScanMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download Scan
+            </Button>
+
             <Button
               onClick={handleClearFilters}
               size="sm"

@@ -1,45 +1,38 @@
 // src/components/TreeInterface.tsx
-import React from "react"; // Removed useState, useCallback, useEffect if no longer needed for local states
+import React from "react"; // Removed useState, useRef, ChangeEvent from here
 import { type WasmProllyTree } from "prolly-wasm";
-import { type TreeState, useAppStore } from "@/useAppStore"; // JsTreeConfigType might not be needed here directly
+import { type TreeState } from "@/useAppStore"; // Removed useAppStore if not directly used
 import {
   Card,
   CardContent,
   CardDescription,
-  // CardFooter, // Will use new mutation for save
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "./ui/card";
-
-import { Button } from "./ui/button"; // Removed: Button variant="outline" for refresh
-import { Loader2, FileDown, RefreshCw } from "lucide-react";
-// Removed: FILE_SIGNATURE, FILE_VERSION, TAG_METADATA, TAG_CHUNK, toU8, u8ToHex, generateTreeFilename, triggerBrowserDownload (moved to hook)
+import { Button } from "./ui/button";
+// Input, Label, Textarea removed if not directly used here
+import { Loader2, FileDown, RefreshCw } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
 
 import { OperationSection } from "./treeOperations/OperationSection";
 import { BasicOpsComponent } from "./treeOperations/BasicOps";
-import { DataExplorerComponent } from "./treeOperations/DataExplorer"; // Will be refactored next
-import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps"; // Will be refactored next
-// Removed: type OperationProps, type TreeOperation
-
-// import { toast } from "sonner"; // Toasts handled by mutations
+import { DataExplorerComponent } from "./treeOperations/DataExplorer";
+import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps";
 import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
+import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea"; // Import new component
+import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader"; // Import new component
 import {
   useRefreshRootHashMutation,
   useSaveTreeToFileMutation,
+  // useApplyJsonlBatchMutation // Not directly used here anymore
 } from "@/hooks/useTreeMutations";
-import { CardFooter } from "@/components/ui/card";
+// import { toast } from "sonner"; // Not directly used here
 
 interface TreeInterfaceProps {
   treeState: TreeState;
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
-  // Removed: updateTreeState (mutations will call useAppStore().updateTreeState directly)
-  // Removed: loadingStates, setLoading (handled by mutations)
-  // Removed: refreshRootHashDisplay (handled by useRefreshRootHashMutation)
-  // Removed: handleSaveTreeToFile (handled by useSaveTreeToFileMutation)
-  // Removed: triggerChunkExportAfterGc (will be handled by GC mutation's onSuccess)
-
   const refreshRootHashMutation = useRefreshRootHashMutation();
   const saveTreeMutation = useSaveTreeToFileMutation();
 
@@ -54,13 +47,10 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     saveTreeMutation.mutate({ treeId: treeState.id, tree: treeState.tree });
   };
 
-  // Props for child components will be simplified
   const commonProps = {
     tree: treeState.tree,
     treeId: treeState.id,
   };
-
-  // Props for DataExplorer & AdvancedOps that rely on store data
   const dataDisplayProps = {
     items: treeState.items,
     chunks: treeState.chunks,
@@ -70,7 +60,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
 
   return (
     <Card className="w-full shadow-lg border">
-      <CardHeader className="pb-4">
+      <CardHeader>
         <CardTitle className="text-xl tracking-tight">
           Tree Instance:{" "}
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
@@ -95,7 +85,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
-        {/* Pass only necessary props. BasicOpsComponent now uses hooks for its actions. */}
         <OperationSection title="Basic Operations" defaultOpen={true}>
           <BasicOpsComponent tree={treeState.tree} treeId={treeState.id} />
         </OperationSection>
@@ -105,6 +94,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             <VirtualizedTreeItems
               currentRoot={treeState.rootHash}
               tree={treeState.tree as WasmProllyTree}
+              treeId={treeState.id}
               height="400px"
               itemHeight={65}
             />
@@ -113,29 +103,29 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           )}
         </OperationSection>
 
-        {/* DataExplorerComponent and AdvancedOpsComponent will also be refactored to use mutations */}
+        <OperationSection title="Batch Insert (JSONL)" defaultOpen={false}>
+          <div className="space-y-4">
+            <JsonlFileLoaderComponent
+              tree={treeState.tree}
+              treeId={treeState.id}
+            />
+            <JsonlBatchArea tree={treeState.tree} treeId={treeState.id} />
+          </div>
+        </OperationSection>
+
         <OperationSection title="Log Chunks">
           <DataExplorerComponent
             {...commonProps}
-            {...dataDisplayProps}
-            // setLoading, loadingStates, updateTreeStoreState removed
+            items={dataDisplayProps.items}
+            chunks={dataDisplayProps.chunks}
           />
         </OperationSection>
 
         <OperationSection title="Advanced Operations">
           <AdvancedOpsComponent
             {...commonProps}
-            {...dataDisplayProps}
-            // setLoading, loadingStates, updateTreeStoreState, triggerChunkExport removed/refactored
-            // triggerChunkExport will be part of GCMutation's onSuccess or a separate mutation
-            triggerChunkExport={async () => {
-              // This will be replaced by a mutation for exporting chunks,
-              // called within the GC mutation's onSuccess.
-              // For now, this prop might need to be removed or refactored.
-              console.warn(
-                "triggerChunkExport in AdvancedOpsComponent needs refactoring with mutations."
-              );
-            }}
+            diffResult={dataDisplayProps.diffResult}
+            gcCollectedCount={dataDisplayProps.gcCollectedCount}
           />
         </OperationSection>
       </CardContent>

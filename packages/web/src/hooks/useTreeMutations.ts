@@ -3,6 +3,7 @@ import { type WasmProllyTree, type WasmProllyTreeCursor } from "prolly-wasm";
 import { useAppStore, type TreeState } from "@/useAppStore"; // Added TreeState for diffResult typing
 import { toU8, u8ToHex, u8ToString, hexToU8 } from "@/lib/prollyUtils"; // Added hexToU8
 import { toast } from "sonner";
+import type { ScanArgsWasm, ScanPageWasm } from "@/lib/types";
 
 // Common interface for mutation arguments that include tree context
 interface BaseTreeMutationArgs {
@@ -14,7 +15,13 @@ interface BaseTreeMutationArgs {
 interface InsertItemArgs extends BaseTreeMutationArgs {
   key: string;
   value: string;
+
+  /**
+   * Matches the structure of ScanArgs in Rust for sending to Wasm.
+   * Optional fields can be omitted or explicitly set to undefined.
+   */
 }
+
 export function useInsertItemMutation() {
   const { updateTreeState } = useAppStore();
   return useMutation({
@@ -381,6 +388,147 @@ export function useSaveTreeToFileMutation() {
     },
     onError: (error: Error) => {
       toast.error(`Save tree failed: ${error.message}`);
+    },
+  });
+}
+
+interface JsonlItem {
+  key: string;
+  value: string;
+}
+interface ApplyJsonlBatchArgs extends BaseTreeMutationArgs {
+  items: JsonlItem[];
+}
+
+export function useApplyJsonlBatchMutation() {
+  const { updateTreeState } = useAppStore();
+
+  return useMutation({
+    mutationFn: async (args: ApplyJsonlBatchArgs) => {
+      if (args.items.length === 0) {
+        // It's not an error to apply an empty batch, but we can provide feedback.
+        return {
+          treeId: args.treeId,
+          newRootHash: u8ToHex(await args.tree.getRootHash()),
+          count: 0,
+          noOp: true,
+        };
+      }
+
+      const batchForWasm: [Uint8Array, Uint8Array][] = args.items.map(
+        (item) => [toU8(item.key), toU8(item.value)]
+      );
+
+      await args.tree.insertBatch(batchForWasm); // This is the Wasm function
+      const newRootHashU8 = await args.tree.getRootHash();
+      return {
+        treeId: args.treeId,
+        newRootHash: u8ToHex(newRootHashU8),
+        count: args.items.length,
+        noOp: false,
+      };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        rootHash: data.newRootHash,
+        lastError: null,
+      });
+      if (data.noOp) {
+        toast.info("No items provided in JSONL batch.");
+      } else {
+        toast.success(
+          `Successfully applied ${data.count} entries from JSONL batch.`
+        );
+      }
+      // Potentially invalidate queries that depend on tree items, e.g., the scan view
+      // queryClient.invalidateQueries({ queryKey: ['items', data.treeId, /* currentScanArgs */] });
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        lastError: `JSONL batch apply failed: ${error.message}`,
+      });
+      toast.error(`JSONL batch apply failed: ${error.message}`);
+    },
+  });
+}
+
+// --- Download Scan as JSONL Mutation ---
+interface DownloadScanAsJsonlArgs extends BaseTreeMutationArgs {
+  // Use the client-defined ScanArgsWasm, omitting pagination for the full scan logic.
+  scanArgs: Omit<ScanArgsWasm, "offset" | "limit">;
+}
+
+export function useDownloadScanAsJsonlMutation() {
+  return useMutation({
+    mutationFn: async (args: DownloadScanAsJsonlArgs) => {
+      const { tree, treeId, scanArgs } = args;
+      const allItems: { key: string; value: string }[] = [];
+      let currentOffset = 0;
+      const DOWNLOAD_BATCH_SIZE = 200;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        // Construct the argument object for Wasm based on ScanArgsWasm
+        const currentScanArgsForWasm: ScanArgsWasm = {
+          ...scanArgs,
+          offset: currentOffset,
+          limit: DOWNLOAD_BATCH_SIZE,
+        };
+
+        // Call Wasm, which takes `any` and returns `Promise<any>`
+        // We cast the result to our expected ScanPageWasm structure.
+        const page = (await tree.scanItems(
+          currentScanArgsForWasm
+        )) as ScanPageWasm;
+
+        if (page.items && page.items.length > 0) {
+          page.items.forEach((pair: [Uint8Array, Uint8Array]) => {
+            allItems.push({
+              key: u8ToString(pair[0]),
+              value: u8ToString(pair[1]),
+            });
+          });
+        }
+
+        if (
+          !page.hasNextPage ||
+          (page.items && page.items.length < DOWNLOAD_BATCH_SIZE)
+        ) {
+          break;
+        }
+        currentOffset += page.items?.length || 0;
+      }
+
+      if (allItems.length === 0) {
+        toast.info("No items found matching current scan filters to download.");
+        return null;
+      }
+
+      const jsonlString = allItems
+        .map((item) => JSON.stringify({ key: item.key, value: item.value }))
+        .join("\n");
+
+      const filename = `prolly_scan_${treeId}_${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.jsonl`;
+      return { data: new TextEncoder().encode(jsonlString), filename };
+    },
+    onSuccess: (result, variables) => {
+      if (result) {
+        triggerBrowserDownload(
+          result.data,
+          result.filename,
+          "application/jsonl"
+        );
+        toast.success(
+          `Downloaded scan results for tree "${variables.treeId}" as JSONL.`
+        );
+      }
+    },
+    onError: (error: Error, variables) => {
+      toast.error(
+        `Failed to download scan for tree "${variables.treeId}": ${error.message}`
+      );
     },
   });
 }
