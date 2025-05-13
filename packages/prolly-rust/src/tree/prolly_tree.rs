@@ -315,7 +315,6 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
     }
 
-    // Insert
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Result<()> { // Public
         let value_repr = self.prepare_value_repr(value).await?;
@@ -363,6 +362,18 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
         Ok(())
     }
+
+    /// Inserts a batch of key-value pairs into the tree.
+    /// This method iterates through the provided items and calls `insert` for each.
+    /// It's a convenience method to reduce JS-to-Wasm call overhead for multiple inserts.
+    pub async fn insert_batch(&mut self, items: Vec<(Key, Value)>) -> Result<()> {
+        for (key, value) in items {
+            // Each insert will prepare its value_repr and handle tree modifications.
+            self.insert(key, value).await?;
+        }
+        Ok(())
+    }
+
     fn recursive_delete_impl<'s>(
         &'s mut self,
         node_hash: Hash,

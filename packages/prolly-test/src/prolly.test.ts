@@ -257,6 +257,7 @@ describe("WasmProllyTree", () => {
     expectU8Eq(retrieved2, toU8(inserted.get(keyToTest)!));
   });
 
+  // TODO: Implement this test as these are configurable now
   // Note: Testing internal node splits requires fanout * fanout items (e.g., 32*32 = 1024)
   // which might be too slow for a unit test. This could be a longer-running integration test.
   it.skip("should trigger internal node splits (large test)", async () => {
@@ -306,312 +307,559 @@ describe("WasmProllyTree", () => {
     const retrievedB = (await tree.get(toU8("keyB"))) as Uint8Array | null;
     expectU8Eq(retrievedB, toU8("valB1"));
   });
-});
 
-describe("WasmProllyTree little fan", () => {
-  const FANOUT = 4; // Target Fanout
-  const MIN_FANOUT = 2; // Min Fanout
+  describe("insertBatch", () => {
+    it("should insert multiple items into an empty tree", async () => {
+      const tree = new WasmProllyTree();
+      const itemsToInsert = [
+        { k: "batch_key1", v: "batch_val1" },
+        { k: "batch_key2", v: "batch_val2" },
+        { k: "batch_key0", v: "batch_val0" }, // Insert out of order
+      ];
 
-  it("DELETE: should trigger leaf merge", async () => {
-    // Setup: Need two leaf nodes after a split, each with minimum entries (2), then delete one
-    // Target fanout 4, min fanout 2. Split at 5 elements.
-    // Insert 5 keys to cause split (left leaf 2, right leaf 3)
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
-    const keys = ["k01", "k02", "k03", "k04", "k05"];
-    for (const k of keys) {
-      await tree.insert(toU8(k), toU8(`v_${k}`));
-    }
-    // Expected state: root -> [leaf(k01, k02), leaf(k03, k04, k05)] (approx split)
+      const jsArrayItems = itemsToInsert.map((item) => [
+        toU8(item.k),
+        toU8(item.v),
+      ]);
 
-    // Delete k01 (left leaf will have 1 entry < min_fanout)
-    const deleted1 = await tree.delete(toU8("k01"));
-    expect(deleted1, "Deleting k01 should return true").toBe(true);
+      // The WasmProllyTree.insertBatch expects a js_sys::Array directly.
+      // In a pure JS/TS test environment, you might need to construct it carefully
+      // or ensure your Wasm binding layer handles plain JS arrays.
+      // For vitest, directly passing a JS array of Uint8Array pairs should work
+      // if the wasm-bindgen layer correctly converts it.
+      await tree.insertBatch(jsArrayItems as any); // Cast as any if js_sys::Array isn't directly usable here
 
-    // Expect merge: left leaf (k02) merges with right leaf (k03, k04, k05) -> root is now a leaf node again
-    // Verify all remaining keys exist
-    expectU8Eq(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      toU8("v_k02")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      toU8("v_k03")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k04"))) as Uint8Array | null,
-      toU8("v_k04")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k05"))) as Uint8Array | null,
-      toU8("v_k05")
-    );
-    // Verify deleted key is gone
-    expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
-
-    // Check root hash changed after delete/merge
-    const finalHash = (await tree.getRootHash()) as Uint8Array | null;
-    expect(finalHash).not.toBeNull();
-    // We can't easily verify the structure change without inspecting nodes/level
-  });
-
-  it("DELETE: should trigger leaf rebalance (borrow from right)", async () => {
-    // Setup: Left leaf with 1 (underflow), Right leaf with 3 (can lend)
-    // Target fanout 4, min fanout 2. Split at 5 elements.
-    // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
-    const keys = ["k01", "k02", "k03", "k04", "k05"];
-    for (const k of keys) {
-      await tree.insert(toU8(k), toU8(`v_${k}`));
-    }
-
-    // Delete k01 -> left leaf has k02 (size 1, needs borrow)
-    await tree.delete(toU8("k01"));
-
-    // Expect borrow from right: k03 moves from right to left.
-    // State should become: root -> [leaf(k02, k03), leaf(k04, k05)]
-    // Verify all remaining keys
-    expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
-    expectU8Eq(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      toU8("v_k02")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      toU8("v_k03")
-    ); // Check moved key
-    expectU8Eq(
-      (await tree.get(toU8("k04"))) as Uint8Array | null,
-      toU8("v_k04")
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k05"))) as Uint8Array | null,
-      toU8("v_k05")
-    );
-  });
-
-  it("DELETE: should empty the tree when deleting the last element", async () => {
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
-    const key = toU8("last");
-    await tree.insert(key, toU8("value"));
-
-    expect((await tree.getRootHash()) as Uint8Array | null).not.toBeNull();
-
-    const deleted = await tree.delete(key);
-    expect(deleted).toBe(true);
-
-    expect((await tree.getRootHash()) as Uint8Array | null).toBeNull();
-    expect((await tree.get(key)) as Uint8Array | null).toBeNull();
-  });
-
-  it("should handle interleaved inserts and deletes", async () => {
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
-    const N = 20; // Enough to cause some splits/merges potentially
-    const present = new Set<string>();
-
-    // Phase 1: Insert initial batch
-    for (let i = 0; i < N / 2; i++) {
-      const keyStr = `key_${String(i).padStart(2, "0")}`;
-      await tree.insert(toU8(keyStr), toU8(`val_${i}`));
-      present.add(keyStr);
-    }
-    const hash1 = await tree.getRootHash();
-
-    // Phase 2: Delete some, insert some
-    for (let i = 0; i < N / 4; i++) {
-      // Delete first quarter
-      const keyStr = `key_${String(i).padStart(2, "0")}`;
-      await tree.delete(toU8(keyStr));
-      present.delete(keyStr);
-    }
-    for (let i = N / 2; i < N; i++) {
-      // Insert second half
-      const keyStr = `key_${String(i).padStart(2, "0")}`;
-      await tree.insert(toU8(keyStr), toU8(`val_${i}`));
-      present.add(keyStr);
-    }
-    const hash2 = await tree.getRootHash();
-    expect(Array.from(hash1 as Uint8Array)).not.toEqual(
-      Array.from(hash2 as Uint8Array)
-    );
-
-    // Phase 3: Verify final state
-    for (let i = 0; i < N; i++) {
-      const keyStr = `key_${String(i).padStart(2, "0")}`;
-      const retrieved = (await tree.get(toU8(keyStr))) as Uint8Array | null;
-      if (present.has(keyStr)) {
-        expectU8Eq(retrieved, toU8(`val_${i}`));
-      } else {
-        expect(retrieved).toBeNull();
+      for (const item of itemsToInsert) {
+        const retrieved = (await tree.get(toU8(item.k))) as Uint8Array | null;
+        expectU8Eq(
+          retrieved,
+          toU8(item.v),
+          `Failed for ${item.k} after batch insert`
+        );
       }
-    }
+      const rootHash = (await tree.getRootHash()) as Uint8Array | null;
+      expect(rootHash).not.toBeNull();
+    });
+
+    it("should insert multiple items into a non-empty tree", async () => {
+      const tree = new WasmProllyTree();
+      await tree.insert(toU8("existing_key"), toU8("existing_val"));
+      const initialRootHash = await tree.getRootHash();
+
+      const itemsToInsert = [
+        { k: "new_batch_key1", v: "new_batch_val1" },
+        { k: "new_batch_key2", v: "new_batch_val2" },
+      ];
+      const jsArrayItems = itemsToInsert.map((item) => [
+        toU8(item.k),
+        toU8(item.v),
+      ]);
+      await tree.insertBatch(jsArrayItems as any);
+
+      // Check new items
+      for (const item of itemsToInsert) {
+        const retrieved = (await tree.get(toU8(item.k))) as Uint8Array | null;
+        expectU8Eq(retrieved, toU8(item.v));
+      }
+      // Check existing item
+      const retrievedExisting = (await tree.get(
+        toU8("existing_key")
+      )) as Uint8Array | null;
+      expectU8Eq(retrievedExisting, toU8("existing_val"));
+
+      const finalRootHash = (await tree.getRootHash()) as Uint8Array | null;
+      expect(finalRootHash).not.toBeNull();
+      expect(Array.from(finalRootHash!)).not.toEqual(
+        Array.from(initialRootHash!)
+      );
+    });
+
+    it("should overwrite existing keys during batch insert", async () => {
+      const tree = new WasmProllyTree();
+      await tree.insert(toU8("overwrite_key1"), toU8("initial_val1"));
+      await tree.insert(toU8("another_key"), toU8("initial_other_val"));
+
+      const itemsToInsert = [
+        { k: "overwrite_key1", v: "overwritten_val1" }, // This will overwrite
+        { k: "new_key_in_batch", v: "new_val_in_batch" },
+      ];
+      const jsArrayItems = itemsToInsert.map((item) => [
+        toU8(item.k),
+        toU8(item.v),
+      ]);
+      await tree.insertBatch(jsArrayItems as any);
+
+      const retrievedOverwrite = (await tree.get(
+        toU8("overwrite_key1")
+      )) as Uint8Array | null;
+      expectU8Eq(retrievedOverwrite, toU8("overwritten_val1"));
+
+      const retrievedNew = (await tree.get(
+        toU8("new_key_in_batch")
+      )) as Uint8Array | null;
+      expectU8Eq(retrievedNew, toU8("new_val_in_batch"));
+
+      const retrievedAnother = (await tree.get(
+        toU8("another_key")
+      )) as Uint8Array | null;
+      expectU8Eq(retrievedAnother, toU8("initial_other_val")); // Should remain unchanged
+    });
+
+    it("should handle an empty batch without error", async () => {
+      const tree = new WasmProllyTree();
+      await tree.insert(toU8("key_before_empty_batch"), toU8("val_before"));
+      const initialRootHash = await tree.getRootHash();
+
+      const emptyJsArrayItems: Uint8Array[][] = [];
+      await tree.insertBatch(emptyJsArrayItems as any);
+
+      const finalRootHash = await tree.getRootHash();
+      expectU8Eq(
+        finalRootHash,
+        initialRootHash,
+        "Root hash should not change after empty batch insert"
+      );
+
+      const retrieved = (await tree.get(
+        toU8("key_before_empty_batch")
+      )) as Uint8Array | null;
+      expectU8Eq(retrieved, toU8("val_before"));
+    });
+
+    it("should insert a larger batch potentially causing splits", async () => {
+      const tree = new WasmProllyTree(); // Default config
+      const batchSize = 50; // Enough to likely cause splits
+      const itemsToInsert = [];
+      for (let i = 0; i < batchSize; i++) {
+        itemsToInsert.push({
+          k: `large_batch_key_${String(i).padStart(2, "0")}`,
+          v: `val_${i}`,
+        });
+      }
+      const jsArrayItems = itemsToInsert.map((item) => [
+        toU8(item.k),
+        toU8(item.v),
+      ]);
+
+      const initialRootHash = await tree.getRootHash(); // Should be null
+      await tree.insertBatch(jsArrayItems as any);
+      const finalRootHash = await tree.getRootHash();
+      expect(finalRootHash).not.toBeNull();
+      if (initialRootHash) {
+        // If tree wasn't empty
+        expect(Array.from(finalRootHash!)).not.toEqual(
+          Array.from(initialRootHash)
+        );
+      }
+
+      // Verify a subset of items
+      for (let i = 0; i < batchSize; i += 5) {
+        const item = itemsToInsert[i];
+        const retrieved = (await tree.get(toU8(item.k))) as Uint8Array | null;
+        expectU8Eq(
+          retrieved,
+          toU8(item.v),
+          `Failed for ${item.k} in large batch`
+        );
+      }
+    });
+
+    it("insertBatch should correctly handle keys with varied lengths and binary data", async () => {
+      const tree = new WasmProllyTree();
+      const itemsToInsert = [
+        { k: "short", v: "sv" },
+        {
+          k: "a_very_long_key_that_might_affect_node_packing_or_boundaries_eventually",
+          v: "this_is_a_much_longer_value_than_the_others_inserted_so_far_".repeat(
+            3
+          ),
+        }, // Shorter than CDC threshold for simplicity
+        {
+          k_bin: new Uint8Array([0, 1, 2, 255]),
+          v_bin: new Uint8Array([10, 0, 20]),
+        },
+      ];
+
+      const jsArrayItems = [
+        [toU8(itemsToInsert[0].k), toU8(itemsToInsert[0].v)],
+        [toU8(itemsToInsert[1].k), toU8(itemsToInsert[1].v)],
+        [itemsToInsert[2].k_bin, itemsToInsert[2].v_bin],
+      ];
+
+      await tree.insertBatch(jsArrayItems as any);
+
+      const r1 = (await tree.get(
+        toU8(itemsToInsert[0].k)
+      )) as Uint8Array | null;
+      expectU8Eq(r1, toU8(itemsToInsert[0].v));
+      const r2 = (await tree.get(
+        toU8(itemsToInsert[1].k)
+      )) as Uint8Array | null;
+      expectU8Eq(r2, toU8(itemsToInsert[1].v));
+      const r3 = (await tree.get(itemsToInsert[2].k_bin)) as Uint8Array | null;
+      expectU8Eq(r3, itemsToInsert[2].v_bin);
+    });
+
+    // Test error case for malformed input (if Wasm doesn't panic but returns rejected promise)
+    // This depends on how `insertBatch` in `lib.rs` handles errors.
+    // The current `lib.rs` implementation for `insertBatch` returns a rejected Promise for malformed input.
+    it("insertBatch should reject promise for malformed input array", async () => {
+      const tree = new WasmProllyTree();
+      const malformedItems = [
+        [toU8("key1"), toU8("value1")],
+        "not_an_array", // Malformed entry
+        [toU8("key3"), toU8("value3")],
+      ];
+
+      try {
+        await tree.insertBatch(malformedItems as any);
+        // If it reaches here, the promise didn't reject, which is a failure for this test.
+        expect.fail(
+          "insertBatch promise should have been rejected for malformed input."
+        );
+      } catch (error: any) {
+        // Check if the error message is what we expect from Rust's error handling in lib.rs
+        expect(error.message || error.toString()).toContain(
+          "Item at index 1 in batch is not an array."
+        );
+      }
+
+      const malformedPair = [
+        [toU8("key1"), toU8("value1")],
+        [toU8("key2")], // Malformed pair (missing value)
+      ];
+      try {
+        await tree.insertBatch(malformedPair as any);
+        expect.fail(
+          "insertBatch promise should have been rejected for malformed pair."
+        );
+      } catch (error: any) {
+        expect(error.message || error.toString()).toContain(
+          "Item at index 1 in batch is not a [key, value] pair."
+        );
+      }
+
+      const malformedType = [[toU8("key1"), "not_a_uint8array"]];
+      try {
+        await tree.insertBatch(malformedType as any);
+        expect.fail(
+          "insertBatch promise should have been rejected for non-Uint8Array value."
+        );
+      } catch (error: any) {
+        expect(error.message || error.toString()).toContain(
+          "Item at index 0 in batch has non-Uint8Array key or value."
+        );
+      }
+    });
   });
 
-  it("DELETE: step-by-step trace for merge reducing tree height (k04, k05 delete)", async () => {
-    // Renamed slightly for clarity
-    const FANOUT = 4;
-    const MIN_FANOUT = 2;
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+  describe("WasmProllyTree little fan", () => {
+    const FANOUT = 4; // Target Fanout
+    const MIN_FANOUT = 2; // Min Fanout
 
-    // --- Setup ---
-    console.log("--- TEST: Setup ---");
-    const keys = ["k01", "k02", "k03", "k04", "k05"];
-    const values: { [key: string]: Uint8Array } = {};
-    for (const k of keys) {
-      const v = toU8(`v_${k}`);
-      values[k] = v;
-      await tree.insert(toU8(k), v);
-    }
-    const hash_after_insert = (await tree.getRootHash()) as Uint8Array | null;
-    console.log(`Initial root hash: ${formatU8Array(hash_after_insert)}`);
-    expect(hash_after_insert).not.toBeNull();
+    it("DELETE: should trigger leaf merge", async () => {
+      // Setup: Need two leaf nodes after a split, each with minimum entries (2), then delete one
+      // Target fanout 4, min fanout 2. Split at 5 elements.
+      // Insert 5 keys to cause split (left leaf 2, right leaf 3)
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const keys = ["k01", "k02", "k03", "k04", "k05"];
+      for (const k of keys) {
+        await tree.insert(toU8(k), toU8(`v_${k}`));
+      }
+      // Expected state: root -> [leaf(k01, k02), leaf(k03, k04, k05)] (approx split)
 
-    // --- Step 1: Delete k04 ---
-    console.log("\n--- TEST: Deleting k04 ---");
-    const deleted4 = await tree.delete(toU8("k04"));
-    expect(deleted4).toBe(true);
-    const hash_after_del_k04 = (await tree.getRootHash()) as Uint8Array | null;
-    console.log(
-      `Root hash after k04 delete: ${formatU8Array(hash_after_del_k04)}`
-    );
-    expect(hash_after_del_k04).not.toBeNull();
-    expect(Array.from(hash_after_del_k04!)).not.toEqual(
-      Array.from(hash_after_insert!)
-    );
+      // Delete k01 (left leaf will have 1 entry < min_fanout)
+      const deleted1 = await tree.delete(toU8("k01"));
+      expect(deleted1, "Deleting k01 should return true").toBe(true);
 
-    // Verify state after k04 delete
-    console.log("TEST: Verifying state after k04 delete...");
-    expect((await tree.get(toU8("k04"))) as Uint8Array | null).toBeNull();
-    expectU8Eq(
-      (await tree.get(toU8("k01"))) as Uint8Array | null,
-      values["k01"]
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      values["k02"]
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      values["k03"]
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k05"))) as Uint8Array | null,
-      values["k05"]
-    );
+      // Expect merge: left leaf (k02) merges with right leaf (k03, k04, k05) -> root is now a leaf node again
+      // Verify all remaining keys exist
+      expectU8Eq(
+        (await tree.get(toU8("k02"))) as Uint8Array | null,
+        toU8("v_k02")
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k03"))) as Uint8Array | null,
+        toU8("v_k03")
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k04"))) as Uint8Array | null,
+        toU8("v_k04")
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k05"))) as Uint8Array | null,
+        toU8("v_k05")
+      );
+      // Verify deleted key is gone
+      expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
 
-    // --- Step 2: Delete k05 ---
-    console.log(
-      "\n--- TEST: Deleting k05 (expecting merge and root collapse) ---"
-    );
-    const deleted5 = await tree.delete(toU8("k05"));
-    expect(deleted5).toBe(true);
-    const hash_after_del_k05 = (await tree.getRootHash()) as Uint8Array | null;
-    console.log(
-      `Root hash after k05 delete: ${formatU8Array(hash_after_del_k05)}`
-    );
+      // Check root hash changed after delete/merge
+      const finalHash = (await tree.getRootHash()) as Uint8Array | null;
+      expect(finalHash).not.toBeNull();
+      // We can't easily verify the structure change without inspecting nodes/level
+    });
 
-    // *** CORRECTED EXPECTATION ***
-    expect(
-      hash_after_del_k05,
-      "Root hash after k05 delete should be null"
-    ).not.toBeNull();
+    it("DELETE: should trigger leaf rebalance (borrow from right)", async () => {
+      // Setup: Left leaf with 1 (underflow), Right leaf with 3 (can lend)
+      // Target fanout 4, min fanout 2. Split at 5 elements.
+      // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const keys = ["k01", "k02", "k03", "k04", "k05"];
+      for (const k of keys) {
+        await tree.insert(toU8(k), toU8(`v_${k}`));
+      }
 
-    // Export chunks after k05 delete (optional, store might have old nodes)
-    const chunks_after_del_k05 = (await tree.exportChunks()) as Map<
-      Uint8Array,
-      Uint8Array
-    >;
+      // Delete k01 -> left leaf has k02 (size 1, needs borrow)
+      await tree.delete(toU8("k01"));
 
-    expectU8Eq(
-      // Use your helper for Uint8Array comparison
-      (await tree.get(toU8("k01"))) as Uint8Array | null,
-      values["k01"], // Assuming 'values' map from setup holds the original values
-      "Final k01 check - should exist"
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      values["k02"],
-      "Final k02 check - should exist"
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      values["k03"],
-      "Final k03 check - should exist"
-    );
+      // Expect borrow from right: k03 moves from right to left.
+      // State should become: root -> [leaf(k02, k03), leaf(k04, k05)]
+      // Verify all remaining keys
+      expect((await tree.get(toU8("k01"))) as Uint8Array | null).toBeNull();
+      expectU8Eq(
+        (await tree.get(toU8("k02"))) as Uint8Array | null,
+        toU8("v_k02")
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k03"))) as Uint8Array | null,
+        toU8("v_k03")
+      ); // Check moved key
+      expectU8Eq(
+        (await tree.get(toU8("k04"))) as Uint8Array | null,
+        toU8("v_k04")
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k05"))) as Uint8Array | null,
+        toU8("v_k05")
+      );
+    });
 
-    // Keys k04 and k05 were deleted and should be null
-    expect(
-      (await tree.get(toU8("k04"))) as Uint8Array | null,
-      "Final k04 check - should be deleted"
-    ).toBeNull();
-    expect(
-      (await tree.get(toU8("k05"))) as Uint8Array | null,
-      "Final k05 check - should be deleted"
-    ).toBeNull();
-  });
+    it("DELETE: should empty the tree when deleting the last element", async () => {
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const key = toU8("last");
+      await tree.insert(key, toU8("value"));
 
-  // --- Test Deleting a Boundary Key ---
-  it("DELETE: should correctly handle deleting a boundary key", async () => {
-    const FANOUT = 4;
-    const MIN_FANOUT = 2;
-    const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      expect((await tree.getRootHash()) as Uint8Array | null).not.toBeNull();
 
-    // Setup: Insert k01, k02, k03, k04, k05
-    // State: root -> [L(k01, k02){bd=k02}, R(k03, k04, k05){bd=k05}]
-    // The key 'k02' is the boundary key for the left child stored in the root.
-    const keys = ["k01", "k02", "k03", "k04", "k05"];
-    const values: { [key: string]: Uint8Array } = {};
-    for (const k of keys) {
-      const v = toU8(`v_${k}`);
-      values[k] = v;
-      await tree.insert(toU8(k), v);
-    }
+      const deleted = await tree.delete(key);
+      expect(deleted).toBe(true);
 
-    // Action: Delete 'k02' (the boundary key of the left leaf)
-    console.log("TEST: Deleting boundary key k02...");
-    const deleted = await tree.delete(toU8("k02"));
-    expect(deleted, "delete k02 result").toBe(true);
+      expect((await tree.getRootHash()) as Uint8Array | null).toBeNull();
+      expect((await tree.get(key)) as Uint8Array | null).toBeNull();
+    });
 
-    // Expected State:
-    // Left leaf becomes (k01), size 1 -> Underflow.
-    // Right leaf is (k03, k04, k05), size 3 -> Can lend.
-    // Rebalance (borrow from right): Move 'k03' from right to left.
-    // Final state: root -> [L(k01, k03){bd=k03}, R(k04, k05){bd=k05}]
-    // Note: The boundary key for the left child in the root should update from k02 to k03.
+    it("should handle interleaved inserts and deletes", async () => {
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const N = 20; // Enough to cause some splits/merges potentially
+      const present = new Set<string>();
 
-    console.log("TEST: Verifying state after deleting boundary k02...");
-    // Check deleted key
-    expect(
-      (await tree.get(toU8("k02"))) as Uint8Array | null,
-      "k02 after delete"
-    ).toBeNull();
+      // Phase 1: Insert initial batch
+      for (let i = 0; i < N / 2; i++) {
+        const keyStr = `key_${String(i).padStart(2, "0")}`;
+        await tree.insert(toU8(keyStr), toU8(`val_${i}`));
+        present.add(keyStr);
+      }
+      const hash1 = await tree.getRootHash();
 
-    // Check remaining keys are in correct final state
-    expectU8Eq(
-      (await tree.get(toU8("k01"))) as Uint8Array | null,
-      values["k01"],
-      "k01 after k02 delete"
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k03"))) as Uint8Array | null,
-      values["k03"],
-      "k03 after k02 delete"
-    ); // Should still exist
-    expectU8Eq(
-      (await tree.get(toU8("k04"))) as Uint8Array | null,
-      values["k04"],
-      "k04 after k02 delete"
-    );
-    expectU8Eq(
-      (await tree.get(toU8("k05"))) as Uint8Array | null,
-      values["k05"],
-      "k05 after k02 delete"
-    );
+      // Phase 2: Delete some, insert some
+      for (let i = 0; i < N / 4; i++) {
+        // Delete first quarter
+        const keyStr = `key_${String(i).padStart(2, "0")}`;
+        await tree.delete(toU8(keyStr));
+        present.delete(keyStr);
+      }
+      for (let i = N / 2; i < N; i++) {
+        // Insert second half
+        const keyStr = `key_${String(i).padStart(2, "0")}`;
+        await tree.insert(toU8(keyStr), toU8(`val_${i}`));
+        present.add(keyStr);
+      }
+      const hash2 = await tree.getRootHash();
+      expect(Array.from(hash1 as Uint8Array)).not.toEqual(
+        Array.from(hash2 as Uint8Array)
+      );
 
-    // Verify root hash changed
-    const finalHash = await tree.getRootHash();
-    const initialHash = await tree.getRootHash(); // Re-getting initial hash won't work, need to store it earlier if needed for comparison
-    expect(finalHash).not.toBeNull();
-    // We don't have the hash from *before* the k02 delete easily, but we know state changed.
+      // Phase 3: Verify final state
+      for (let i = 0; i < N; i++) {
+        const keyStr = `key_${String(i).padStart(2, "0")}`;
+        const retrieved = (await tree.get(toU8(keyStr))) as Uint8Array | null;
+        if (present.has(keyStr)) {
+          expectU8Eq(retrieved, toU8(`val_${i}`));
+        } else {
+          expect(retrieved).toBeNull();
+        }
+      }
+    });
+
+    it("DELETE: step-by-step trace for merge reducing tree height (k04, k05 delete)", async () => {
+      // Renamed slightly for clarity
+      const FANOUT = 4;
+      const MIN_FANOUT = 2;
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+
+      // --- Setup ---
+      console.log("--- TEST: Setup ---");
+      const keys = ["k01", "k02", "k03", "k04", "k05"];
+      const values: { [key: string]: Uint8Array } = {};
+      for (const k of keys) {
+        const v = toU8(`v_${k}`);
+        values[k] = v;
+        await tree.insert(toU8(k), v);
+      }
+      const hash_after_insert = (await tree.getRootHash()) as Uint8Array | null;
+      console.log(`Initial root hash: ${formatU8Array(hash_after_insert)}`);
+      expect(hash_after_insert).not.toBeNull();
+
+      // --- Step 1: Delete k04 ---
+      console.log("\n--- TEST: Deleting k04 ---");
+      const deleted4 = await tree.delete(toU8("k04"));
+      expect(deleted4).toBe(true);
+      const hash_after_del_k04 =
+        (await tree.getRootHash()) as Uint8Array | null;
+      console.log(
+        `Root hash after k04 delete: ${formatU8Array(hash_after_del_k04)}`
+      );
+      expect(hash_after_del_k04).not.toBeNull();
+      expect(Array.from(hash_after_del_k04!)).not.toEqual(
+        Array.from(hash_after_insert!)
+      );
+
+      // Verify state after k04 delete
+      console.log("TEST: Verifying state after k04 delete...");
+      expect((await tree.get(toU8("k04"))) as Uint8Array | null).toBeNull();
+      expectU8Eq(
+        (await tree.get(toU8("k01"))) as Uint8Array | null,
+        values["k01"]
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k02"))) as Uint8Array | null,
+        values["k02"]
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k03"))) as Uint8Array | null,
+        values["k03"]
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k05"))) as Uint8Array | null,
+        values["k05"]
+      );
+
+      // --- Step 2: Delete k05 ---
+      console.log(
+        "\n--- TEST: Deleting k05 (expecting merge and root collapse) ---"
+      );
+      const deleted5 = await tree.delete(toU8("k05"));
+      expect(deleted5).toBe(true);
+      const hash_after_del_k05 =
+        (await tree.getRootHash()) as Uint8Array | null;
+      console.log(
+        `Root hash after k05 delete: ${formatU8Array(hash_after_del_k05)}`
+      );
+
+      // *** CORRECTED EXPECTATION ***
+      expect(
+        hash_after_del_k05,
+        "Root hash after k05 delete should be null"
+      ).not.toBeNull();
+
+      // Export chunks after k05 delete (optional, store might have old nodes)
+      const chunks_after_del_k05 = (await tree.exportChunks()) as Map<
+        Uint8Array,
+        Uint8Array
+      >;
+
+      expectU8Eq(
+        // Use your helper for Uint8Array comparison
+        (await tree.get(toU8("k01"))) as Uint8Array | null,
+        values["k01"], // Assuming 'values' map from setup holds the original values
+        "Final k01 check - should exist"
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k02"))) as Uint8Array | null,
+        values["k02"],
+        "Final k02 check - should exist"
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k03"))) as Uint8Array | null,
+        values["k03"],
+        "Final k03 check - should exist"
+      );
+
+      // Keys k04 and k05 were deleted and should be null
+      expect(
+        (await tree.get(toU8("k04"))) as Uint8Array | null,
+        "Final k04 check - should be deleted"
+      ).toBeNull();
+      expect(
+        (await tree.get(toU8("k05"))) as Uint8Array | null,
+        "Final k05 check - should be deleted"
+      ).toBeNull();
+    });
+
+    // --- Test Deleting a Boundary Key ---
+    it("DELETE: should correctly handle deleting a boundary key", async () => {
+      const FANOUT = 4;
+      const MIN_FANOUT = 2;
+      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+
+      // Setup: Insert k01, k02, k03, k04, k05
+      // State: root -> [L(k01, k02){bd=k02}, R(k03, k04, k05){bd=k05}]
+      // The key 'k02' is the boundary key for the left child stored in the root.
+      const keys = ["k01", "k02", "k03", "k04", "k05"];
+      const values: { [key: string]: Uint8Array } = {};
+      for (const k of keys) {
+        const v = toU8(`v_${k}`);
+        values[k] = v;
+        await tree.insert(toU8(k), v);
+      }
+
+      // Action: Delete 'k02' (the boundary key of the left leaf)
+      console.log("TEST: Deleting boundary key k02...");
+      const deleted = await tree.delete(toU8("k02"));
+      expect(deleted, "delete k02 result").toBe(true);
+
+      // Expected State:
+      // Left leaf becomes (k01), size 1 -> Underflow.
+      // Right leaf is (k03, k04, k05), size 3 -> Can lend.
+      // Rebalance (borrow from right): Move 'k03' from right to left.
+      // Final state: root -> [L(k01, k03){bd=k03}, R(k04, k05){bd=k05}]
+      // Note: The boundary key for the left child in the root should update from k02 to k03.
+
+      console.log("TEST: Verifying state after deleting boundary k02...");
+      // Check deleted key
+      expect(
+        (await tree.get(toU8("k02"))) as Uint8Array | null,
+        "k02 after delete"
+      ).toBeNull();
+
+      // Check remaining keys are in correct final state
+      expectU8Eq(
+        (await tree.get(toU8("k01"))) as Uint8Array | null,
+        values["k01"],
+        "k01 after k02 delete"
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k03"))) as Uint8Array | null,
+        values["k03"],
+        "k03 after k02 delete"
+      ); // Should still exist
+      expectU8Eq(
+        (await tree.get(toU8("k04"))) as Uint8Array | null,
+        values["k04"],
+        "k04 after k02 delete"
+      );
+      expectU8Eq(
+        (await tree.get(toU8("k05"))) as Uint8Array | null,
+        values["k05"],
+        "k05 after k02 delete"
+      );
+
+      // Verify root hash changed
+      const finalHash = await tree.getRootHash();
+      const initialHash = await tree.getRootHash(); // Re-getting initial hash won't work, need to store it earlier if needed for comparison
+      expect(finalHash).not.toBeNull();
+      // We don't have the hash from *before* the k02 delete easily, but we know state changed.
+    });
   });
 });
 

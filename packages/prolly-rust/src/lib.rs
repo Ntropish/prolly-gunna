@@ -216,6 +216,46 @@ impl WasmProllyTree {
         };
         wasm_bindgen_futures::future_to_promise(future)
     }
+
+    #[wasm_bindgen(js_name = insertBatch)]
+    pub fn insert_batch(&self, items_js: &JsArray) -> Promise {
+        let mut items_rust: Vec<(Key, Value)> = Vec::with_capacity(items_js.length() as usize);
+
+        for i in 0..items_js.length() {
+            let pair_val = items_js.get(i);
+            if let Some(pair_array) = pair_val.dyn_ref::<JsArray>() {
+                if pair_array.length() == 2 {
+                    let key_js = pair_array.get(0);
+                    let value_js = pair_array.get(1);
+
+                    if let (Some(key_u8), Some(value_u8)) = (key_js.dyn_ref::<Uint8Array>(), value_js.dyn_ref::<Uint8Array>()) {
+                        items_rust.push((key_u8.to_vec(), value_u8.to_vec()));
+                    } else {
+                        return Promise::reject(&JsValue::from_str(&format!(
+                            "Item at index {} in batch has non-Uint8Array key or value.", i
+                        )));
+                    }
+                } else {
+                    return Promise::reject(&JsValue::from_str(&format!(
+                        "Item at index {} in batch is not a [key, value] pair.", i
+                    )));
+                }
+            } else {
+                return Promise::reject(&JsValue::from_str(&format!(
+                    "Item at index {} in batch is not an array.", i
+                )));
+            }
+        }
+
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            let mut tree = tree_clone.lock().await; // Acquire lock for mutable access
+            tree.insert_batch(items_rust).await
+                .map(|_| JsValue::UNDEFINED) // insert_batch returns Result<()>, map to undefined on success
+                .map_err(prolly_error_to_jsvalue)
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
     
     /// Deletes a key. Returns a Promise that resolves to `true` if deleted, `false` otherwise.
     /// (Currently unimplemented in core tree logic)
