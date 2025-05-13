@@ -1,75 +1,55 @@
+// src/components/treeOperations/AdvancedOps.tsx
 import React, { useState } from "react";
-import { type OperationProps } from "./common";
+import { type WasmProllyTree } from "prolly-wasm";
 import { type TreeState } from "@/useAppStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
-import { u8ToString, hexToU8 } from "@/lib/prollyUtils";
-import { toast } from "sonner";
+// u8ToString, hexToU8 are now used within mutations
+// import { toast } from "sonner"; // Handled by mutations
+import {
+  useDiffTreesMutation,
+  useGarbageCollectMutation,
+} from "@/hooks/useTreeMutations";
 
-interface AdvancedOpsProps extends OperationProps {
-  diffResult: TreeState["diffResult"];
-  gcCollectedCount: TreeState["gcCollectedCount"];
-  triggerChunkExport: () => Promise<void>; // Callback to refresh chunks in parent
+interface AdvancedOpsProps {
+  tree: WasmProllyTree;
+  treeId: string;
+  diffResult: TreeState["diffResult"]; // Display data from Zustand store
+  gcCollectedCount: TreeState["gcCollectedCount"]; // Display data
+  // triggerChunkExport prop is removed
 }
 
 export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
   tree,
-  setLoading,
-  loadingStates,
-  updateTreeStoreState,
+  treeId,
   diffResult,
   gcCollectedCount,
-  triggerChunkExport,
 }) => {
   const [diffHash1, setDiffHash1] = useState("");
   const [diffHash2, setDiffHash2] = useState("");
   const [gcLiveHashes, setGcLiveHashes] = useState("");
 
-  const handleDiff = async () => {
-    setLoading("diff", true);
-    try {
-      const h1 = hexToU8(diffHash1);
-      const h2 = hexToU8(diffHash2);
-      const diffEntries = await tree.diffRoots(h1, h2);
-      const formattedDiffs = diffEntries.map((entry: any) => ({
-        key: u8ToString(entry.key),
-        left: entry.leftValue ? u8ToString(entry.leftValue) : undefined,
-        right: entry.rightValue ? u8ToString(entry.rightValue) : undefined,
-      }));
-      updateTreeStoreState({ diffResult: formattedDiffs });
+  const diffTreesMutation = useDiffTreesMutation();
+  const garbageCollectMutation = useGarbageCollectMutation();
 
-      toast.success(`Diff computed with ${formattedDiffs.length} differences.`);
-    } catch (e: any) {
-      updateTreeStoreState({ diffResult: [] });
-      toast.error(e);
-    } finally {
-      setLoading("diff", false);
-    }
+  const handleDiff = () => {
+    diffTreesMutation.mutate({
+      treeId,
+      tree,
+      hash1Hex: diffHash1,
+      hash2Hex: diffHash2,
+    });
   };
 
-  const handleGc = async () => {
-    setLoading("gc", true);
-    try {
-      const liveHashesU8Arrays = gcLiveHashes
-        .split(",")
-        .map((h) => h.trim())
-        .map((h) => hexToU8(h))
-        .filter((arr) => arr !== null) as Uint8Array[];
-      const collected = await tree.triggerGc(liveHashesU8Arrays);
-      updateTreeStoreState({ gcCollectedCount: collected });
-      toast.success(
-        `${collected} chunk(s) collected by GC. This tree's store is now smaller.`
-      );
-      await triggerChunkExport(); // Refresh chunk list in parent
-    } catch (e: any) {
-      updateTreeStoreState({ gcCollectedCount: null });
-      toast.error(e.message);
-    } finally {
-      setLoading("gc", false);
-    }
+  const handleGc = () => {
+    garbageCollectMutation.mutate({
+      treeId,
+      tree,
+      gcLiveHashesHex: gcLiveHashes,
+    });
   };
 
   return (
@@ -80,23 +60,23 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
         </h4>
         <div className="flex flex-col gap-2">
           <Input
-            placeholder="Root Hash 1 (hex, optional)"
+            placeholder="Root Hash 1 (hex, blank for current tree's left side of diff if Hash2 is also blank, else empty tree)"
             value={diffHash1}
             onChange={(e) => setDiffHash1(e.target.value)}
-            disabled={loadingStates.diff}
+            disabled={diffTreesMutation.isPending}
           />
           <Input
-            placeholder="Root Hash 2 (hex, optional)"
+            placeholder="Root Hash 2 (hex, blank for current tree's right side of diff, else empty tree)"
             value={diffHash2}
             onChange={(e) => setDiffHash2(e.target.value)}
-            disabled={loadingStates.diff}
+            disabled={diffTreesMutation.isPending}
           />
           <Button
             onClick={handleDiff}
-            disabled={loadingStates.diff}
+            disabled={diffTreesMutation.isPending}
             className="w-full sm:w-auto"
           >
-            {loadingStates.diff ? (
+            {diffTreesMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <GitCompareArrows className="mr-2 h-4 w-4" />
@@ -124,18 +104,18 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
       <div className="space-y-2">
         <h4 className="font-medium text-sm">Garbage Collection</h4>
         <Textarea
-          placeholder="Live Root Hashes (comma-separated hex strings)"
+          placeholder="Live Root Hashes (comma-separated hex strings). Current tree's root is always included."
           value={gcLiveHashes}
           onChange={(e) => setGcLiveHashes(e.target.value)}
           rows={2}
-          disabled={loadingStates.gc}
+          disabled={garbageCollectMutation.isPending}
         />
         <Button
           onClick={handleGc}
-          disabled={loadingStates.gc}
+          disabled={garbageCollectMutation.isPending}
           className="w-full sm:w-auto"
         >
-          {loadingStates.gc ? (
+          {garbageCollectMutation.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Eraser className="mr-2 h-4 w-4" />

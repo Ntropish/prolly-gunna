@@ -1,0 +1,414 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type WasmProllyTree, type WasmProllyTreeCursor } from "prolly-wasm";
+import { useAppStore, type TreeState } from "@/useAppStore"; // Added TreeState for diffResult typing
+import { toU8, u8ToHex, u8ToString, hexToU8 } from "@/lib/prollyUtils"; // Added hexToU8
+import { toast } from "sonner";
+
+// Common interface for mutation arguments that include tree context
+interface BaseTreeMutationArgs {
+  treeId: string;
+  tree: WasmProllyTree;
+}
+
+// --- Insert Item Mutation ---
+interface InsertItemArgs extends BaseTreeMutationArgs {
+  key: string;
+  value: string;
+}
+export function useInsertItemMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: InsertItemArgs) => {
+      if (!args.key) throw new Error("Insert key cannot be empty.");
+      await args.tree.insert(toU8(args.key), toU8(args.value));
+      const newRootHashU8 = await args.tree.getRootHash();
+      return {
+        treeId: args.treeId,
+        newRootHash: u8ToHex(newRootHashU8),
+        insertedKey: args.key,
+      };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        rootHash: data.newRootHash,
+        lastError: null,
+      });
+      toast.success(`Item "${data.insertedKey}" inserted successfully.`);
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, { lastError: error.message });
+      toast.error(`Insert failed for "${variables.key}": ${error.message}`);
+    },
+  });
+}
+
+// --- Get Item Mutation ---
+// ... (existing useGetItemMutation)
+interface GetItemArgs extends BaseTreeMutationArgs {
+  key: string;
+}
+export function useGetItemMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: GetItemArgs) => {
+      if (!args.key) throw new Error("Get key cannot be empty.");
+      const valueU8 = await args.tree.get(toU8(args.key));
+      return {
+        treeId: args.treeId,
+        key: args.key,
+        value: valueU8 ? u8ToString(valueU8) : null,
+      };
+    },
+    onSuccess: (data) => {
+      const displayValue =
+        data.value === null ? "null (not found)" : data.value;
+      updateTreeState(data.treeId, {
+        lastValue: displayValue,
+        lastError: null,
+      });
+      toast.success(`Value for "${data.key}": ${displayValue}`);
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        lastError: error.message,
+        lastValue: null,
+      });
+      toast.error(`Get failed for "${variables.key}": ${error.message}`);
+    },
+  });
+}
+
+// --- Delete Item Mutation ---
+// ... (existing useDeleteItemMutation)
+interface DeleteItemArgs extends BaseTreeMutationArgs {
+  key: string;
+}
+export function useDeleteItemMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: DeleteItemArgs) => {
+      if (!args.key) throw new Error("Delete key cannot be empty.");
+      const wasDeleted = await args.tree.delete(toU8(args.key));
+      const newRootHashU8 = await args.tree.getRootHash();
+      return {
+        treeId: args.treeId,
+        newRootHash: u8ToHex(newRootHashU8),
+        deletedKey: args.key,
+        wasDeleted,
+      };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        rootHash: data.newRootHash,
+        lastError: null,
+      });
+      if (data.wasDeleted) {
+        toast.success(`Item "${data.deletedKey}" deleted successfully.`);
+      } else {
+        toast.error(`Item "${data.deletedKey}" not found for deletion.`);
+      }
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, { lastError: error.message });
+      toast.error(`Delete failed for "${variables.key}": ${error.message}`);
+    },
+  });
+}
+
+// --- List Items Mutation ---
+// ... (existing useListItemsMutation)
+export function useListItemsMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: BaseTreeMutationArgs) => {
+      const fetchedItems: { key: string; value: string }[] = [];
+      const cursor: WasmProllyTreeCursor = await args.tree.cursorStart();
+      while (true) {
+        const result: { done: boolean; value?: [Uint8Array, Uint8Array] } =
+          await cursor.next();
+        if (result.done) break;
+        if (result.value) {
+          const [keyU8, valueU8] = result.value;
+          fetchedItems.push({
+            key: u8ToString(keyU8),
+            value: u8ToString(valueU8),
+          });
+        }
+      }
+      return { treeId: args.treeId, items: fetchedItems };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, { items: data.items, lastError: null });
+      toast.success(`Listed ${data.items.length} items.`);
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        items: [],
+        lastError: `Failed to list items: ${error.message}`,
+      });
+      toast.error(`Failed to list items: ${error.message}`);
+    },
+  });
+}
+
+// --- Export Chunks Mutation ---
+// ... (existing useExportChunksMutation)
+export function useExportChunksMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: BaseTreeMutationArgs) => {
+      const chunkMap = (await args.tree.exportChunks()) as Map<
+        Uint8Array,
+        Uint8Array
+      >;
+      const exportedChunks: { hash: string; size: number }[] = [];
+      for (const [keyU8, valueU8] of chunkMap.entries()) {
+        exportedChunks.push({ hash: u8ToHex(keyU8), size: valueU8.length });
+      }
+      return { treeId: args.treeId, chunks: exportedChunks };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, { chunks: data.chunks, lastError: null });
+      toast.success(`Exported ${data.chunks.length} chunks.`);
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        chunks: [],
+        lastError: `Failed to export chunks: ${error.message}`,
+      });
+      toast.error(`Failed to export chunks: ${error.message}`);
+    },
+  });
+}
+
+// --- Diff Trees Mutation ---
+interface DiffTreesArgs extends BaseTreeMutationArgs {
+  hash1Hex: string; // Root Hash 1 (hex, optional, empty string for null)
+  hash2Hex: string; // Root Hash 2 (hex, optional, empty string for null)
+}
+// Define the structure of a single diff entry as returned by Wasm
+interface WasmDiffEntry {
+  key: Uint8Array;
+  leftValue?: Uint8Array;
+  rightValue?: Uint8Array;
+}
+export function useDiffTreesMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: DiffTreesArgs) => {
+      const h1U8 = args.hash1Hex.trim() ? hexToU8(args.hash1Hex.trim()) : null;
+      const h2U8 = args.hash2Hex.trim() ? hexToU8(args.hash2Hex.trim()) : null;
+
+      if (args.hash1Hex.trim() && !h1U8)
+        throw new Error(`Invalid hex string for Root Hash 1: ${args.hash1Hex}`);
+      if (args.hash2Hex.trim() && !h2U8)
+        throw new Error(`Invalid hex string for Root Hash 2: ${args.hash2Hex}`);
+
+      // The Wasm diffRoots function returns a JsArray of JsObjects.
+      const diffEntriesJs = (await args.tree.diffRoots(h1U8, h2U8)) as any[]; // Cast to any[] for iteration
+
+      const formattedDiffs: TreeState["diffResult"] = diffEntriesJs.map(
+        (entry: WasmDiffEntry) => ({
+          key: u8ToString(entry.key),
+          left: entry.leftValue ? u8ToString(entry.leftValue) : undefined,
+          right: entry.rightValue ? u8ToString(entry.rightValue) : undefined,
+        })
+      );
+      return { treeId: args.treeId, diffResult: formattedDiffs };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        diffResult: data.diffResult,
+        lastError: null,
+      });
+      toast.success(
+        `Diff computed with ${data.diffResult.length} differences.`
+      );
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        diffResult: [],
+        lastError: `Diff failed: ${error.message}`,
+      });
+      toast.error(`Diff failed: ${error.message}`);
+    },
+  });
+}
+
+// --- Garbage Collect Mutation ---
+interface GarbageCollectArgs extends BaseTreeMutationArgs {
+  gcLiveHashesHex: string; // Comma-separated hex strings
+}
+export function useGarbageCollectMutation() {
+  const { updateTreeState } = useAppStore();
+  // We also need exportChunks logic here for the onSuccess
+  const exportChunksForGC = async (tree: WasmProllyTree) => {
+    const chunkMap = (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>;
+    const exportedChunks: { hash: string; size: number }[] = [];
+    for (const [keyU8, valueU8] of chunkMap.entries()) {
+      exportedChunks.push({ hash: u8ToHex(keyU8), size: valueU8.length });
+    }
+    return exportedChunks;
+  };
+
+  return useMutation({
+    mutationFn: async (args: GarbageCollectArgs) => {
+      const liveHashesU8Arrays: Uint8Array[] = args.gcLiveHashesHex
+        .split(",")
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0) // Ensure not to process empty strings from split
+        .map((h) => {
+          const u8Arr = hexToU8(h);
+          if (!u8Arr) throw new Error(`Invalid live hash hex string: ${h}`);
+          return u8Arr;
+        });
+
+      const collectedCount = await args.tree.triggerGc(liveHashesU8Arrays);
+      const updatedChunks = await exportChunksForGC(args.tree); // Refresh chunks after GC
+      return {
+        treeId: args.treeId,
+        gcCollectedCount: collectedCount,
+        chunks: updatedChunks,
+      };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        gcCollectedCount: data.gcCollectedCount,
+        chunks: data.chunks,
+        lastError: null,
+      });
+      toast.success(
+        `${data.gcCollectedCount} chunk(s) collected by GC. Chunk list refreshed.`
+      );
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        gcCollectedCount: null,
+        lastError: `GC failed: ${error.message}`,
+      });
+      toast.error(`GC failed: ${error.message}`);
+    },
+  });
+}
+
+// --- Refresh Root Hash Mutation ---
+// ... (existing useRefreshRootHashMutation)
+export function useRefreshRootHashMutation() {
+  const { updateTreeState } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: BaseTreeMutationArgs) => {
+      const newRootHashU8 = await args.tree.getRootHash();
+      return { treeId: args.treeId, newRootHash: u8ToHex(newRootHashU8) };
+    },
+    onSuccess: (data) => {
+      updateTreeState(data.treeId, {
+        rootHash: data.newRootHash,
+        lastError: null,
+      });
+      toast.success("Root hash refreshed.");
+    },
+    onError: (error: Error, variables) => {
+      updateTreeState(variables.treeId, {
+        lastError: `Failed to refresh root hash: ${error.message}`,
+      });
+      toast.error(`Failed to refresh root hash: ${error.message}`);
+    },
+  });
+}
+
+// --- Save Tree To File Mutation ---
+// ... (existing useSaveTreeToFileMutation)
+interface SaveTreeArgs extends BaseTreeMutationArgs {}
+export function useSaveTreeToFileMutation() {
+  const { trees } = useAppStore();
+  return useMutation({
+    mutationFn: async (args: SaveTreeArgs) => {
+      const currentTreeState = trees.find((t) => t.id === args.treeId);
+      if (!currentTreeState || !currentTreeState.treeConfig) {
+        throw new Error("Tree configuration not found for saving.");
+      }
+      const rootHashU8 = await args.tree.getRootHash();
+      const treeConfig = currentTreeState.treeConfig;
+      const chunkMap = (await args.tree.exportChunks()) as Map<
+        Uint8Array,
+        Uint8Array
+      >;
+      const chunkCount = chunkMap.size;
+      const metadata = {
+        rootHash: rootHashU8 ? u8ToHex(rootHashU8) : null,
+        treeConfig: treeConfig,
+        createdAt: new Date().toISOString(),
+        chunkCount: chunkCount,
+      };
+      const metadataJsonString = JSON.stringify(metadata);
+      const metadataBytes = toU8(metadataJsonString);
+      let totalSize = FILE_SIGNATURE.length + 1 + 1 + 4 + metadataBytes.length;
+      const chunksArray: { hash: Uint8Array; data: Uint8Array }[] = [];
+      for (const [hashU8, dataU8] of chunkMap.entries()) {
+        chunksArray.push({ hash: hashU8, data: dataU8 });
+        totalSize += 1 + 4 + 32 + dataU8.length;
+      }
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      let offset = 0;
+      toU8(FILE_SIGNATURE).forEach((byte, i) =>
+        view.setUint8(offset + i, byte)
+      );
+      offset += FILE_SIGNATURE.length;
+      view.setUint8(offset, FILE_VERSION);
+      offset += 1;
+      view.setUint8(offset, TAG_METADATA);
+      offset += 1;
+      view.setUint32(offset, metadataBytes.length, true);
+      offset += 4;
+      new Uint8Array(buffer, offset, metadataBytes.length).set(metadataBytes);
+      offset += metadataBytes.length;
+      for (const chunk of chunksArray) {
+        view.setUint8(offset, TAG_CHUNK);
+        offset += 1;
+        view.setUint32(offset, 32 + chunk.data.length, true);
+        offset += 4;
+        new Uint8Array(buffer, offset, 32).set(chunk.hash);
+        offset += 32;
+        new Uint8Array(buffer, offset, chunk.data.length).set(chunk.data);
+        offset += chunk.data.length;
+      }
+      return { buffer, filename: generateTreeFilename(args.treeId) };
+    },
+    onSuccess: (data) => {
+      triggerBrowserDownload(data.buffer, data.filename);
+      toast.success("Tree saved to file successfully.");
+    },
+    onError: (error: Error) => {
+      toast.error(`Save tree failed: ${error.message}`);
+    },
+  });
+}
+
+// Constants
+const FILE_SIGNATURE = "PRLYTRE1";
+const FILE_VERSION = 0x01;
+const TAG_METADATA = 0x01;
+const TAG_CHUNK = 0x10;
+
+const generateTreeFilename = (treeId: string): string => {
+  const cleanTreeId = treeId.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `prolly-tree-${cleanTreeId}-${timestamp}.prly`;
+};
+
+const triggerBrowserDownload = (
+  data: ArrayBuffer | Blob,
+  filename: string,
+  mimeType: string = "application/octet-stream"
+): void => {
+  const blob =
+    data instanceof Blob ? data : new Blob([data], { type: mimeType });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+};

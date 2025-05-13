@@ -1,86 +1,65 @@
 // src/components/treeOperations/BasicOpsComponent.tsx
 import React, { useState } from "react";
-import { type OperationProps } from "./common";
+import { type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, CheckCircle, Search, Trash2 } from "lucide-react";
-import { toU8, u8ToString } from "@/lib/prollyUtils";
-import { toast } from "sonner";
+import {
+  useInsertItemMutation,
+  useGetItemMutation,
+  useDeleteItemMutation,
+} from "@/hooks/useTreeMutations"; // Adjust path as needed
 
-export const BasicOpsComponent: React.FC<OperationProps> = ({
+interface BasicOpsProps {
+  tree: WasmProllyTree;
+  treeId: string;
+}
+
+export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   tree,
-  setLoading,
-  loadingStates,
-  refreshRootHash,
-  updateTreeStoreState,
+  treeId,
 }) => {
   const [insertKey, setInsertKey] = useState("");
   const [insertValue, setInsertValue] = useState("");
   const [getKey, setGetKey] = useState("");
-  const [deleteKey, setDeleteKey] = useState("");
+  const [deleteKeyInput, setDeleteKeyInput] = useState(""); // Renamed to avoid conflict
 
-  const handleInsert = async () => {
-    if (!insertKey) {
-      toast.error("Insert key cannot be empty.");
-      return;
-    }
-    setLoading("insert", true);
-    try {
-      await tree.insert(toU8(insertKey), toU8(insertValue));
-      await refreshRootHash(); // Refreshes root hash in global store
-      setInsertKey("");
-      setInsertValue("");
-      toast.success("Insert successful.");
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading("insert", false);
-    }
+  const insertMutation = useInsertItemMutation();
+  const getMutation = useGetItemMutation();
+  const deleteMutation = useDeleteItemMutation();
+
+  const handleInsert = () => {
+    insertMutation.mutate(
+      { treeId, tree, key: insertKey, value: insertValue },
+      {
+        onSuccess: () => {
+          setInsertKey("");
+          setInsertValue("");
+        },
+      }
+    );
   };
 
-  const handleGet = async () => {
-    if (!getKey) {
-      //   setFeedback({ type: "error", message: "Get key cannot be empty." });
-      toast.error("Get key cannot be empty.");
-      return;
-    }
-    setLoading("get", true);
-    try {
-      const value = await tree.get(toU8(getKey));
-      // Update a more general display area in TreeInterface rather than local lastValue
-      updateTreeStoreState({
-        lastValue: value ? u8ToString(value) : "null (not found)",
-      });
-
-      toast.success(
-        `Value for "${getKey}": ${value ? u8ToString(value) : "not found"}`
-      );
-      setGetKey("");
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading("get", false);
-    }
+  const handleGet = () => {
+    getMutation.mutate(
+      { treeId, tree, key: getKey },
+      {
+        onSuccess: () => {
+          setGetKey("");
+        },
+      }
+    );
   };
 
-  const handleDelete = async () => {
-    if (!deleteKey) {
-      toast.error("Delete key cannot be empty.");
-      return;
-    }
-    setLoading("delete", true);
-    try {
-      const deleted = await tree.delete(toU8(deleteKey));
-      await refreshRootHash();
-      toast.success(
-        deleted ? "Delete successful." : "Delete failed (key not found)."
-      );
-      setDeleteKey("");
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading("delete", false);
-    }
+  const handleDelete = () => {
+    deleteMutation.mutate(
+      { treeId, tree, key: deleteKeyInput },
+      {
+        onSuccess: () => {
+          setDeleteKeyInput("");
+        },
+      }
+    );
   };
 
   return (
@@ -92,20 +71,20 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
             placeholder="Key"
             value={insertKey}
             onChange={(e) => setInsertKey(e.target.value)}
-            disabled={loadingStates.insert}
+            disabled={insertMutation.isPending}
           />
           <Input
             placeholder="Value"
             value={insertValue}
             onChange={(e) => setInsertValue(e.target.value)}
-            disabled={loadingStates.insert}
+            disabled={insertMutation.isPending}
           />
           <Button
             onClick={handleInsert}
-            disabled={loadingStates.insert || !insertKey}
+            disabled={insertMutation.isPending || !insertKey}
             className="w-full sm:w-auto"
           >
-            {loadingStates.insert ? (
+            {insertMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <CheckCircle className="mr-2 h-4 w-4" />
@@ -121,14 +100,14 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
             placeholder="Key"
             value={getKey}
             onChange={(e) => setGetKey(e.target.value)}
-            disabled={loadingStates.get}
+            disabled={getMutation.isPending}
           />
           <Button
             onClick={handleGet}
-            disabled={loadingStates.get || !getKey}
+            disabled={getMutation.isPending || !getKey}
             className="w-full sm:w-auto"
           >
-            {loadingStates.get ? (
+            {getMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Search className="mr-2 h-4 w-4" />
@@ -142,17 +121,17 @@ export const BasicOpsComponent: React.FC<OperationProps> = ({
         <div className="flex flex-col sm:flex-row gap-2">
           <Input
             placeholder="Key"
-            value={deleteKey}
-            onChange={(e) => setDeleteKey(e.target.value)}
-            disabled={loadingStates.delete}
+            value={deleteKeyInput}
+            onChange={(e) => setDeleteKeyInput(e.target.value)}
+            disabled={deleteMutation.isPending}
           />
           <Button
             onClick={handleDelete}
             variant="destructive"
-            disabled={loadingStates.delete || !deleteKey}
+            disabled={deleteMutation.isPending || !deleteKeyInput}
             className="w-full sm:w-auto"
           >
-            {loadingStates.delete ? (
+            {deleteMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Trash2 className="mr-2 h-4 w-4" />
