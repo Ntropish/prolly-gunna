@@ -9,7 +9,13 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type WasmProllyTree } from "prolly-wasm";
 import { u8ToString, toU8 } from "@/lib/prollyUtils";
-import { Loader2, XCircle, Search } from "lucide-react";
+import {
+  Loader2,
+  XCircle,
+  Search,
+  ArrowRightToLine,
+  MoveHorizontal,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,19 +25,9 @@ import { useDownloadScanAsJsonlMutation } from "@/hooks/useTreeMutations";
 import type { ScanArgsWasm } from "@/lib/types";
 import { Download } from "lucide-react";
 
-// --- Helper: useDebounce Hook ---
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-  return debouncedValue;
-}
+import { useDebounce } from "use-debounce";
+import { getPrefixScanEndBound } from "@/lib/utils/getPrefixScanEndBound";
+import { Tabs, TabsList, TabsTrigger } from "@radix-ui/react-tabs";
 
 // --- Interfaces ---
 interface Item {
@@ -90,42 +86,34 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   height = "400px",
   itemHeight = 60,
 }) => {
-  // --- Filter State ---
-  const [startKeyInput, setStartKeyInput] = useState<string>("");
-  const [endKeyInput, setEndKeyInput] = useState<string>("");
-  const [startInclusiveInput, setStartInclusiveInput] = useState<boolean>(true);
-  const [endInclusiveInput, setEndInclusiveInput] = useState<boolean>(false);
+  const [scanMode, setScanMode] = useState<"range" | "prefix">("prefix");
 
-  // --- Debounced Filter State ---
-  const debouncedStartKeyInput = useDebounce(startKeyInput, 500);
-  const debouncedEndKeyInput = useDebounce(endKeyInput, 500);
-  const debouncedStartInclusive = useDebounce(startInclusiveInput, 500);
-  const debouncedEndInclusive = useDebounce(endInclusiveInput, 500);
+  // --- Canonical Scan Parameters ---
+  const [trueStartBound, setTrueStartBound] = useState<Uint8Array | null>(null);
+  const [trueEndBound, setTrueEndBound] = useState<Uint8Array | null>(null);
+  const [trueStartInclusive, setTrueStartInclusive] = useState<boolean>(true);
+  const [trueEndInclusive, setTrueEndInclusive] = useState<boolean>(false);
 
-  const appliedScanArgs = useMemo<
-    Omit<ScanArgsWasm, "offset" | "limit">
-  >(() => {
-    const startKey = debouncedStartKeyInput.trim();
-    const endKey = debouncedEndKeyInput.trim();
+  // --- Debounced Canonical Scan Parameters for React Query ---
+  const [debouncedTrueStartBound] = useDebounce(trueStartBound, 500);
+  const [debouncedTrueEndBound] = useDebounce(trueEndBound, 500);
+  const [debouncedTrueStartInclusive] = useDebounce(trueStartInclusive, 500);
+  const [debouncedTrueEndInclusive] = useDebounce(trueEndInclusive, 500);
 
-    // Ensure that if toU8 were to return null (which it shouldn't for string inputs based on its current prollyUtils def),
-    // it's converted to undefined. The main goal is to eliminate `null` from the type.
-    const startBoundValue = startKey ? toU8(startKey) : undefined;
-    const endBoundValue = endKey ? toU8(endKey) : undefined;
-
-    return {
-      startBound: startBoundValue, // Explicitly Uint8Array | undefined
-      endBound: endBoundValue, // Explicitly Uint8Array | undefined
-      startInclusive: debouncedStartInclusive,
-      endInclusive: debouncedEndInclusive,
-      // reverse: false, // Add if you implement reverse toggle
-    };
-  }, [
-    debouncedStartKeyInput,
-    debouncedEndKeyInput,
-    debouncedStartInclusive,
-    debouncedEndInclusive,
-  ]);
+  const appliedScanArgs = useMemo<Omit<ScanArgsWasm, "offset" | "limit">>(
+    () => ({
+      startBound: debouncedTrueStartBound ?? undefined,
+      endBound: debouncedTrueEndBound ?? undefined,
+      startInclusive: debouncedTrueStartInclusive,
+      endInclusive: debouncedTrueEndInclusive,
+    }),
+    [
+      debouncedTrueStartBound,
+      debouncedTrueEndBound,
+      debouncedTrueStartInclusive,
+      debouncedTrueEndInclusive,
+    ]
+  );
 
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -193,7 +181,7 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
     ItemsQuery_QueryKey, // TQueryKey
     number // TPageParam
   >({
-    queryKey: ["items", currentRoot, appliedScanArgs],
+    queryKey: ["tree", currentRoot, appliedScanArgs],
     queryFn: async ({ pageParam = 0 }) => {
       if (!tree) throw new Error("Tree not available for fetching items.");
       const scanArgsWithContext: ScanArgs = {
@@ -266,14 +254,83 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   };
 
   const handleClearFilters = () => {
-    setStartKeyInput("");
-    setEndKeyInput("");
-    setStartInclusiveInput(true);
-    setEndInclusiveInput(false);
-    // appliedScanArgs will update via useMemo, triggering queries.
+    setTrueStartBound(null);
+    setTrueEndBound(null);
+    setTrueStartInclusive(true); // Default for "scan all"
+    setTrueEndInclusive(false); // Default for "scan all" (or true, depending on desired default)
     if (parentRef.current) parentRef.current.scrollTop = 0;
     rowVirtualizer.scrollToOffset(0);
     toast.info("Filters cleared.");
+  };
+
+  const handleScanModeChange = (newModeValue: string) => {
+    const newMode = newModeValue as "range" | "prefix";
+    const oldMode = scanMode; // Capture the mode before it's updated
+
+    // Set the scanMode first, so UI can potentially react if needed,
+    // though for this logic, oldMode is key.
+    setScanMode(newMode);
+
+    if (newMode === "prefix" && oldMode === "range") {
+      // --- Transitioning from Range mode TO Prefix mode ---
+      // The current 'trueStartBound' will become the prefix.
+      // We must update the other canonical parameters to define a valid prefix scan
+      // based on this trueStartBound.
+      if (trueStartBound) {
+        // If there's an existing start bound, use it as the prefix
+        const prefixEndBound = getPrefixScanEndBound(trueStartBound);
+
+        // Update canonical state for a prefix definition
+        // No need to setTrueStartBound, it's already our prefix base
+        setTrueStartInclusive(true);
+        setTrueEndBound(prefixEndBound === undefined ? null : prefixEndBound);
+        setTrueEndInclusive(false);
+      } else {
+        // If trueStartBound is null (e.g., filters were cleared, or range was like (null, "someEndKey")),
+        // an empty/null prefix means "scan all".
+        // This aligns with how handlePrefixInputChange treats an empty input.
+        // setTrueStartBound(null); // Already null
+        setTrueStartInclusive(true);
+        setTrueEndBound(null);
+        setTrueEndInclusive(false);
+      }
+    }
+  };
+
+  // --- Event Handlers for UI inputs to update Canonical State ---
+  const handlePrefixInputChange = (value: string) => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      // Empty prefix: scan all
+      setTrueStartBound(null);
+      setTrueStartInclusive(true);
+      setTrueEndBound(null);
+      setTrueEndInclusive(false);
+    } else {
+      const newPrefixU8 = toU8(trimmedValue);
+      const calculatedEndBound = getPrefixScanEndBound(newPrefixU8); // Store in a variable
+
+      setTrueStartBound(newPrefixU8);
+      setTrueStartInclusive(true);
+      // Correctly handle potential undefined from getPrefixScanEndBound
+      setTrueEndBound(
+        calculatedEndBound === undefined ? null : calculatedEndBound
+      );
+      setTrueEndInclusive(false);
+    }
+  };
+
+  const handleRangeStartKeyChange = (value: string) => {
+    setTrueStartBound(value.trim() ? toU8(value.trim()) : null);
+  };
+  const handleRangeEndKeyChange = (value: string) => {
+    setTrueEndBound(value.trim() ? toU8(value.trim()) : null);
+  };
+  const handleRangeStartInclusiveChange = (checked: boolean) => {
+    setTrueStartInclusive(checked);
+  };
+  const handleRangeEndInclusiveChange = (checked: boolean) => {
+    setTrueEndInclusive(checked);
   };
 
   const renderContent = () => {
@@ -419,20 +476,20 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
                   }
                 >
                   {item ? (
-                    <div className="flex flex-row items-center justify-between gap-4 w-full">
-                      <span
-                        className="flex-1 text-right font-mono text-sm truncate"
+                    <div className="flex flex-col items-start gap-1 w-full">
+                      <div
+                        className="flex-1 text-right font-mono text-sm truncate text-muted-foreground"
                         title={item.key}
                       >
                         {item.key}
-                      </span>
-                      <span className="text-muted-foreground mx-2">:</span>
-                      <span
-                        className="flex-1 text-left font-mono text-sm truncate"
+                      </div>
+                      <div
+                        // full width, text wrap
+                        className="flex-1 text-left font-mono text-sm truncate w-full"
                         title={item.value}
                       >
                         {item.value}
-                      </span>
+                      </div>
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground/70 w-full text-center h-full flex items-center justify-center">
@@ -457,100 +514,155 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   return (
     <div className="flex flex-col space-y-3">
       <div className="p-4 border bg-card rounded-lg shadow-sm space-y-4">
-        <div className="flex flex-row justify-between items-end">
-          <div>
-            <Label htmlFor="startKey" className="text-xs font-medium">
-              Start Key
-            </Label>
-            <Input
-              id="startKey"
-              type="text"
-              placeholder="Enter start key"
-              value={startKeyInput}
-              onChange={(e) => setStartKeyInput(e.target.value)}
-              className="h-9 text-sm mt-1"
-            />
-            <div className="mt-1.5 flex items-center space-x-2">
-              <Checkbox
-                id="startInclusive"
-                checked={startInclusiveInput}
-                onCheckedChange={(checked) => setStartInclusiveInput(!!checked)}
-              />
-              <Label
-                htmlFor="startInclusive"
-                className="text-xs font-normal text-muted-foreground cursor-pointer"
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+          <h3 className="text-md font-semibold whitespace-nowrap">
+            Scan Parameters
+          </h3>
+          <Tabs
+            value={scanMode}
+            onValueChange={handleScanModeChange} // Use the new handler
+            className="w-full sm:w-auto"
+          >
+            <TabsList className="h-9">
+              <TabsTrigger
+                value="prefix"
+                className="text-xs data-[state=active]:shadow-md"
               >
-                Inclusive
+                <div className="flex items-center mr-3 px-3 py-2">
+                  <ArrowRightToLine className="mr-1.5 h-4 w-4" />
+                  Prefix
+                </div>
+              </TabsTrigger>
+
+              <TabsTrigger
+                value="range"
+                className="text-xs data-[state=active]:shadow-md"
+              >
+                <div className="flex items-center mr-3 px-3 py-2">
+                  <MoveHorizontal className="mr-1.5 h-4 w-4" />
+                  Range
+                </div>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {scanMode === "range" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <div className="flex flex-col space-y-1">
+              <Label htmlFor="startKey" className="text-xs font-medium">
+                Start Key
               </Label>
+              <Input
+                id="startKey"
+                type="text"
+                placeholder="Enter start key"
+                value={trueStartBound ? u8ToString(trueStartBound) : ""}
+                onChange={(e) => handleRangeStartKeyChange(e.target.value)}
+                className="h-9 text-sm"
+              />
+              <div className="flex items-center space-x-2 pt-1">
+                <Checkbox
+                  id="startInclusive"
+                  checked={trueStartInclusive}
+                  onCheckedChange={(checked) =>
+                    handleRangeStartInclusiveChange(!!checked)
+                  }
+                />
+                <Label
+                  htmlFor="startInclusive"
+                  className="text-xs font-normal text-muted-foreground cursor-pointer"
+                >
+                  Inclusive
+                </Label>
+              </div>
+            </div>
+            <div className="flex flex-col space-y-1">
+              <Label htmlFor="endKey" className="text-xs font-medium">
+                End Key
+              </Label>
+              <Input
+                id="endKey"
+                type="text"
+                placeholder="Enter end key"
+                value={trueEndBound ? u8ToString(trueEndBound) : ""}
+                onChange={(e) => handleRangeEndKeyChange(e.target.value)}
+                className="h-9 text-sm"
+              />
+              <div className="flex items-center space-x-2 pt-1">
+                <Checkbox
+                  id="endInclusive"
+                  checked={trueEndInclusive}
+                  onCheckedChange={(checked) =>
+                    handleRangeEndInclusiveChange(!!checked)
+                  }
+                />
+                <Label
+                  htmlFor="endInclusive"
+                  className="text-xs font-normal text-muted-foreground cursor-pointer"
+                >
+                  Inclusive
+                </Label>
+              </div>
             </div>
           </div>
-          <div>
-            <Label htmlFor="endKey" className="text-xs font-medium">
-              End Key
+        )}
+
+        {scanMode === "prefix" && (
+          <div className="flex flex-col space-y-1">
+            <Label htmlFor="prefixKey" className="text-xs font-medium">
+              Prefix
             </Label>
             <Input
-              id="endKey"
+              id="prefixKey"
               type="text"
-              placeholder="Enter end key"
-              value={endKeyInput}
-              onChange={(e) => setEndKeyInput(e.target.value)}
-              className="h-9 text-sm mt-1"
+              placeholder="Enter prefix"
+              value={trueStartBound ? u8ToString(trueStartBound) : ""} // Prefix input shows the current trueStartBound
+              onChange={(e) => handlePrefixInputChange(e.target.value)}
+              className="h-9 text-sm"
             />
-            <div className="mt-1.5 flex items-center space-x-2">
-              <Checkbox
-                id="endInclusive"
-                checked={endInclusiveInput}
-                onCheckedChange={(checked) => setEndInclusiveInput(!!checked)}
-              />
-              <Label
-                htmlFor="endInclusive"
-                className="text-xs font-normal text-muted-foreground cursor-pointer"
-              >
-                Inclusive
-              </Label>
-            </div>
           </div>
+        )}
 
-          <div className="flex flex-col gap-2 justify-start pt-2 justify-end">
-            <Button
-              onClick={handleDownloadScan}
-              size="sm"
-              variant="outline"
-              className="h-9"
-              disabled={
-                downloadScanMutation.isPending ||
-                isLoadingItems ||
-                isLoadingFilteredCount ||
-                (filteredTotalItems ?? 0) === 0
-              }
-              title={
-                (filteredTotalItems ?? 0) === 0
-                  ? "No items in current scan to download"
-                  : "Download current scan results as JSONL"
-              }
-            >
-              {downloadScanMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              Download Scan
-            </Button>
-
-            <Button
-              onClick={handleClearFilters}
-              size="sm"
-              variant="outline"
-              className="h-9"
-              disabled={
-                isLoadingFilteredCount ||
-                isLoadingItems ||
-                isLoadingUnfilteredCount
-              }
-            >
-              <XCircle className="mr-2 h-4 w-4" /> Clear Filters
-            </Button>
-          </div>
+        <div className="flex items-end gap-2 pt-2 justify-end">
+          <Button
+            onClick={handleClearFilters}
+            size="sm"
+            variant="outline"
+            className="h-9"
+            disabled={
+              isLoadingFilteredCount ||
+              isLoadingItems ||
+              isLoadingUnfilteredCount ||
+              downloadScanMutation.isPending
+            }
+          >
+            <XCircle className="mr-2 h-4 w-4" /> Clear Filters
+          </Button>
+          <Button
+            onClick={handleDownloadScan}
+            size="sm"
+            variant="outline"
+            className="h-9"
+            disabled={
+              downloadScanMutation.isPending ||
+              isLoadingItems ||
+              isLoadingFilteredCount ||
+              (filteredTotalItems ?? 0) === 0
+            }
+            title={
+              (filteredTotalItems ?? 0) === 0
+                ? "No items in current scan to download"
+                : "Download current scan results as JSONL"
+            }
+          >
+            {downloadScanMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Download Scan
+          </Button>
         </div>
       </div>
       {renderContent()}

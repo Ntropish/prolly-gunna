@@ -55,7 +55,7 @@ export const JsonlBatchArea: React.FC<JsonlBatchAreaProps> = ({
     }
 
     if (skippedLines > 0) {
-      toast.warn(
+      toast.error(
         `${skippedLines} JSONL line(s) in textarea were malformed or skipped.`
       );
     }
