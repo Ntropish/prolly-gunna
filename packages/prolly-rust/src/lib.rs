@@ -28,7 +28,7 @@ use crate::common::{TreeConfig, Key, Value, Hash};
 use crate::error::ProllyError;
 use crate::diff::DiffEntry;
 
-use crate::tree::prolly_tree::ScanArgs;
+use crate::tree::ScanArgs;
 
 // Helper to convert ProllyError to JsValue
 fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {

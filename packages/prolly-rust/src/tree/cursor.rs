@@ -8,7 +8,7 @@ use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, ValueRepr, LeafEntry};
 use crate::store::ChunkStore;
-use crate::ScanArgs;
+use crate::tree::ScanArgs;
 use super::ProllyTree; // Access sibling module
 
 
