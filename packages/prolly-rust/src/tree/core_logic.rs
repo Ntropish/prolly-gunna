@@ -150,7 +150,7 @@ pub(super) fn insert_recursive_impl<'s, S: ChunkStore + 's>(
                         let mid_idx = children.len() / 2;
                         let right_sibling_children_entries = children.split_off(mid_idx);
                         
-                        let left_internal_node_item_count: u64 = children.iter().map(|c| c.num_items_subtree).sum();
+                        let _left_internal_node_item_count: u64 = children.iter().map(|c| c.num_items_subtree).sum();
                         let right_internal_node_item_count: u64 = right_sibling_children_entries.iter().map(|c| c.num_items_subtree).sum();
 
                         let right_sibling_boundary_key = right_sibling_children_entries.last().ok_or_else(|| ProllyError::InternalError("Split internal created empty right sibling".to_string()))?.boundary_key.clone();

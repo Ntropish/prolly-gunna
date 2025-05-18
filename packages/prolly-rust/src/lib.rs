@@ -19,7 +19,6 @@ pub mod wasm_bridge;
 
 // Corrected use statements
 use crate::tree::types as core_tree_types; // For core ScanArgs and ScanPage
-use crate::wasm_bridge::WasmScanPage;       // For the WasmScanPage return type (used in scan_items)
 use serde_wasm_bindgen;                    // For from_value / to_value
 
 use crate::tree::ProllyTree;
@@ -35,11 +34,8 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 
 // --- TypeScript Custom Section ---
 // Import the TypeScript definitions from an external file.
-// Adjust path if your .ts file is located elsewhere relative to lib.rs
-const PROLLY_TREE_TS_DEFS: &str = include_str!("prolly_tree_types.ts");
-
 #[wasm_bindgen(typescript_custom_section)]
-const TS_APPEND_CONTENT: &'static str = PROLLY_TREE_TS_DEFS;
+const TS_APPEND_CONTENT: &'static str = include_str!("prolly_tree_types.ts");
 
 #[wasm_bindgen]
 extern "C" {

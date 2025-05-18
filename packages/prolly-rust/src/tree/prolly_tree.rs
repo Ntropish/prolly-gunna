@@ -6,13 +6,12 @@ use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
 use crate::store::ChunkStore;
-use crate::chunk::chunk_node; // For initial root creation if no io module call
 use crate::diff::{diff_trees, DiffEntry};
 use crate::gc::GarbageCollector;
 
 use super::cursor::Cursor;
-use super::types::{ScanArgs, ScanPage, ProcessedNodeUpdate, DeleteRecursionResult}; // Public and internal types
-use super::{io, core_logic, modification}; // Our new modules
+use super::types::{ScanArgs, ScanPage, ProcessedNodeUpdate, DeleteRecursionResult}; 
+use super::{io, core_logic};
 
 
 #[derive(Debug)]

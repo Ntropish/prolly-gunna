@@ -1,7 +1,6 @@
 // ProllyTree Cursor Module
 use std::sync::Arc;
 use std::cmp::Ordering;
-use std::collections::VecDeque;
 use log::warn; 
 
 use crate::common::{Hash, Key, Value, TreeConfig};
@@ -19,6 +18,7 @@ pub struct Cursor<S: ChunkStore> {
     /// Reference to the store to load nodes.
     store: Arc<S>,
     /// Tree configuration (e.g., for max inline size, though less relevant for cursor).
+    #[allow(dead_code)]
     config: TreeConfig, // Maybe only store Arc<S> is needed? Depends on value reconstruction. Let's keep config for now.
     
     /// Stack representing the path from the root to the current leaf.
@@ -486,7 +486,6 @@ impl<S: ChunkStore> Cursor<S> {
         Ok(Self { store, config, path, current_leaf_entry_idx })
     }
 
-    // next_in_scan needs to be robust
     pub async fn next_in_scan(&mut self, args: &ScanArgs) -> Result<Option<(Key, Value)>> {
         gloo_console::debug!(format!("[next_in_scan] BEGIN. reverse: {}, current_leaf_entry_idx: {:?}, path_len: {}", args.reverse, self.current_leaf_entry_idx, self.path.len()));
 

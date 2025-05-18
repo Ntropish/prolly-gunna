@@ -2,23 +2,8 @@
 use crate::tree::types as core_tree_types;
 use crate::common::{Key, Value}; // Key and Value are Vec<u8>
 use wasm_bindgen::prelude::*;
-use js_sys::{Uint8Array as JsUint8Array, Array as JsArray, BigInt as JsBigInt};
-use serde::Deserialize; // For the helper struct
-use serde_wasm_bindgen;
+use js_sys::{Uint8Array as JsUint8Array, Array as JsArray};
 
-
-// Helper struct for deserializing JsValue with all fields optional
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct JsScanArgsInput {
-    #[serde(default)] start_bound: Option<Key>,
-    #[serde(default)] end_bound: Option<Key>,
-    #[serde(default)] start_inclusive: Option<bool>,
-    #[serde(default)] end_inclusive: Option<bool>,
-    #[serde(default)] reverse: Option<bool>,
-    #[serde(default)] offset: Option<u64>, // Serde handles JS number/bigint to Option<u64>
-    #[serde(default)] limit: Option<usize>,
-}
 
 
 #[wasm_bindgen]
