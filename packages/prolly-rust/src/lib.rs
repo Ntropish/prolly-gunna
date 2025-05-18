@@ -157,7 +157,7 @@ impl WasmProllyTree {
     pub fn load(
         root_hash_js: Option<JsUint8Array>,
         chunks_js: &JsMap,
-        tree_config_js_val: &JsValue,
+        tree_config_options: Option<TreeConfigOptions>, // MODIFIED: Now Option<TreeConfigOptions>
     ) -> Promise {
         let root_h_opt: Option<Hash> = match root_hash_js {
             Some(rh_js) => {
@@ -176,15 +176,27 @@ impl WasmProllyTree {
             Err(e) => return Promise::reject(&e),
         };
         
-        let config: TreeConfig = if tree_config_js_val.is_null() || tree_config_js_val.is_undefined() {
-            TreeConfig::default()
-        } else {
-            match serde_wasm_bindgen::from_value(tree_config_js_val.clone()) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    gloo_console::warn!(&format!("Failed to deserialize TreeConfig: {}. Using default. Ensure object matches TreeConfigOptions interface.", e));
+        let config: TreeConfig = match tree_config_options {
+            Some(options_js_val) => {
+                // options_js_val is of type TreeConfigOptions (which is a JsValue facade)
+                // We need to convert it to a JsValue to use with from_value
+                let js_val_ref: &JsValue = options_js_val.as_ref(); // Convert TreeConfigOptions to &JsValue
+                if js_val_ref.is_undefined() || js_val_ref.is_null() {
                     TreeConfig::default()
+                } else {
+                    match serde_wasm_bindgen::from_value(js_val_ref.clone()) {
+                        Ok(cfg) => cfg,
+                        Err(e) => {
+                            // Using gloo_console from your previous lib.rs setup
+                            gloo_console::warn!(&format!("Failed to deserialize TreeConfigOptions: {}. Using default.", e));
+                            TreeConfig::default()
+                        }
+                    }
                 }
+            }
+            None => {
+                // Argument was omitted by the JS caller
+                TreeConfig::default()
             }
         };
         
@@ -198,7 +210,11 @@ impl WasmProllyTree {
             } else {
                 Ok(ProllyTree::new(store, config))
             };
-            tree_result.map( |tree| WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)), }.into())
+
+            tree_result
+                .map(|tree| {
+                    WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
+                })
                 .map_err(prolly_error_to_jsvalue)
         };
         wasm_bindgen_futures::future_to_promise(future)
