@@ -46,6 +46,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "ScanOptions")]
     pub type ScanOptions;
 
+    #[wasm_bindgen(typescript_type = "HierarchyScanOptions")]
+    pub type HierarchyScanOptions; 
+
     #[wasm_bindgen(typescript_type = "BatchItem[]")]
     pub type BatchItemsArray; // Used for insert_batch's items parameter
 
@@ -80,6 +83,8 @@ extern "C" {
     pub type PromiseCountAllItemsFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<CursorNextReturn>")]
     pub type PromiseCursorNextReturn;
+    #[wasm_bindgen(typescript_type = "Promise<HierarchyScanFnReturn>")]
+    pub type PromiseHierarchyScanReturn; 
 }
 // --- End TypeScript Custom Section ---
 
@@ -452,6 +457,51 @@ impl WasmProllyTree {
         let future = async move {
             tree_clone.lock().await.count_all_items().await
                 .map(|c| JsValue::from_f64(c as f64)).map_err(prolly_error_to_jsvalue)
+        };
+        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = hierarchyScan)]
+    pub fn hierarchy_scan(&self, options: Option<HierarchyScanOptions>) -> PromiseHierarchyScanReturn {
+        let core_scan_args: core_tree_types::HierarchyScanArgs = match options {
+            Some(opts_js_val) if !opts_js_val.is_undefined() && !opts_js_val.is_null() => {
+                // opts_js_val is HierarchyScanOptions (JsValue facade), .into() converts to JsValue
+                match serde_wasm_bindgen::from_value(opts_js_val.into()) {
+                    Ok(args) => args,
+                    Err(e) => {
+                        let err_msg = format!("HierarchyScanOptions parse error: {}", e);
+                        gloo_console::error!(&err_msg);
+                        return wasm_bindgen::JsValue::from(
+                            Promise::reject(&JsValue::from_str(&err_msg))
+                        ).into();
+                    }
+                }
+            }
+            _ => core_tree_types::HierarchyScanArgs::default(),
+        };
+
+        gloo_console::debug!(format!("Rust hierarchy_scan: Parsed core_scan_args: {:?}", core_scan_args));
+
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            tree_clone.lock().await.hierarchy_scan(core_scan_args).await
+                .map_err(prolly_error_to_jsvalue)
+                .map(|core_hierarchy_page| {
+                    let wasm_page = crate::wasm_bridge::WasmHierarchyScanPage::from(core_hierarchy_page);
+                    // --- This is the crucial change ---
+                    // Since WasmHierarchyScanPage is a #[wasm_bindgen] struct,
+                    // it can be directly converted into a JsValue.
+                    wasm_page.into()
+                    // --- Remove or comment out the old match block ---
+                    // match serde_wasm_bindgen::to_value(&wasm_page) {
+                    //      Ok(js_val) => js_val,
+                    //      Err(e) => {
+                    //         let err_msg = format!("Failed to serialize WasmHierarchyScanPage: {}", e);
+                    //         gloo_console::error!(&err_msg);
+                    //         JsValue::from_str(&err_msg)
+                    //      }
+                    // }
+                })
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }

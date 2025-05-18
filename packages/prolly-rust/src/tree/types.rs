@@ -72,3 +72,69 @@ pub struct ScanPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_page_cursor: Option<Key>,
 }
+
+
+/// Arguments for a hierarchy scan operation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HierarchyScanArgs {
+    /// Optional key to start the scan from. The scan will attempt to find this key
+    /// and begin yielding nodes on the path to it, and then nodes thereafter.
+    /// If None, starts from the root of the tree.
+    pub start_key: Option<Key>,
+
+    /// Optional depth limit for the scan.
+    /// 0 means only the root. 1 means root and its direct children, etc.
+    /// None means no depth limit.
+    pub max_depth: Option<usize>,
+
+    /// Limit the number of hierarchy items returned in one page.
+    pub limit: Option<usize>,
+    // Note: Offset might be complex to implement meaningfully for a hierarchical scan
+    // unless it's a flat list of items. For now, we'll omit it and rely on cursors.
+
+    // Consider adding filters in the future, e.g., only show internal nodes, only leaf nodes.
+}
+
+/// Represents an item encountered during a hierarchy scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HierarchyItem {
+    Node {
+        hash: Hash,
+        level: u8,
+        is_leaf: bool,
+        num_entries: usize, // Number of entries in this node (children for internal, k/v for leaf)
+        path_indices: Vec<usize>, // Index of this node in its parent, and so on up to root
+    },
+    InternalEntryItem {
+        parent_hash: Hash,
+        entry_index: usize,
+        boundary_key: Key,
+        child_hash: Hash,
+        num_items_subtree: u64,
+    },
+    LeafEntryItem {
+        parent_hash: Hash,
+        entry_index: usize,
+        key: Key,
+        value_repr_type: String, // "Inline", "Chunked", "ChunkedSequence"
+        value_hash: Option<Hash>, // Only for Chunked or first hash of ChunkedSequence
+        value_size: u64, // Inline size or total_size for ChunkedSequence
+    },
+    // Could add NodeEnd if needed for certain iteration patterns.
+}
+
+/// A page of results from a hierarchy scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HierarchyScanPage {
+    pub items: Vec<HierarchyItem>,
+    /// Indicates if there are more items beyond this page.
+    /// This might be simpler to determine by whether `items.len() == limit`.
+    pub has_next_page: bool,
+    /// Optional cursor to get the next page.
+    /// This could be a serialized state of the HierarchyCursor or a specific reference point.
+    /// For simplicity, we might initially not support a resumable cursor beyond the limit.
+    pub next_page_cursor_token: Option<String>, // Placeholder for actual cursor mechanism
+}

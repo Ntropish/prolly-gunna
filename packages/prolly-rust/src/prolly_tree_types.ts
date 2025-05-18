@@ -96,3 +96,60 @@ export type CountAllItemsFnReturn = number;
 export type CursorNextReturn =
   | { done: false; value: [Uint8Array, Uint8Array] }
   | { done: true; value?: undefined };
+
+// --- Added for Hierarchy Scan ---
+export interface HierarchyScanOptions {
+  startKey?: Uint8Array;
+  maxDepth?: number;
+  limit?: number;
+}
+
+/**
+ * Represents an item encountered during a hierarchy scan.
+ * The specific fields depend on the type of item.
+ */
+
+export interface HierarchyScanPageResult {
+  items: WasmHierarchyItem[];
+  hasNextPage: boolean;
+  nextPageCursorToken?: string;
+}
+
+export type WasmHierarchyItem =
+  | {
+      type: "Node";
+      hash: Uint8Array;
+      level: number;
+      isLeaf: boolean;
+      numEntries: number;
+      pathIndices: number[];
+    }
+  | {
+      type: "InternalEntry";
+      parentHash: Uint8Array;
+      entryIndex: number;
+      boundaryKey: Uint8Array;
+      childHash: Uint8Array;
+      numItemsSubtree: number;
+    }
+  | {
+      type: "LeafEntry";
+      parentHash: Uint8Array;
+      entryIndex: number;
+      key: Uint8Array;
+      valueReprType: string;
+      valueHash?: Uint8Array;
+      valueSize: number;
+    };
+
+export interface HierarchyScanOptions {
+  startKey?: Uint8Array;
+  maxDepth?: number;
+  limit?: number;
+}
+
+export interface HierarchyScanPageResult {
+  items: WasmHierarchyItem[]; // WasmHierarchyItem is defined by the custom section in wasm_bridge.rs
+  hasNextPage: boolean;
+  nextPageCursorToken?: string;
+}

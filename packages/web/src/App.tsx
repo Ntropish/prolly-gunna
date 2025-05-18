@@ -28,7 +28,6 @@ import {
   hexToU8,
   u8ToString,
 } from "@/lib/prollyUtils";
-import { CheckCircle } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
 function App() {

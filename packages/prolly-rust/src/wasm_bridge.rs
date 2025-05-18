@@ -2,8 +2,7 @@
 use crate::tree::types as core_tree_types;
 use crate::common::{Key, Value}; // Key and Value are Vec<u8>
 use wasm_bindgen::prelude::*;
-use js_sys::{Uint8Array as JsUint8Array, Array as JsArray};
-
+use js_sys::{Object, Reflect, Uint8Array as JsUint8Array, Array as JsArray};
 
 
 #[wasm_bindgen]
@@ -65,3 +64,107 @@ impl From<core_tree_types::ScanPage> for WasmScanPage {
     }
 }
 
+
+
+// We'll convert HierarchyItem to a generic JsValue (Object) in Rust
+// as enums with data are tricky with wasm_bindgen directly for complex types.
+// The TS type above will guide the JS consumer.
+
+fn hierarchy_item_to_jsvalue(item: core_tree_types::HierarchyItem) -> Result<JsValue, JsValue> {
+    let obj = Object::new();
+    match item {
+        core_tree_types::HierarchyItem::Node { hash, level, is_leaf, num_entries, path_indices } => {
+            Reflect::set(&obj, &"type".into(), &"Node".into())?;
+            Reflect::set(&obj, &"hash".into(), &js_sys::Uint8Array::from(&hash[..]).into())?;
+            Reflect::set(&obj, &"level".into(), &JsValue::from_f64(level as f64))?;
+            Reflect::set(&obj, &"isLeaf".into(), &JsValue::from_bool(is_leaf))?;
+            Reflect::set(&obj, &"numEntries".into(), &JsValue::from_f64(num_entries as f64))?;
+            let js_path_indices = JsArray::new_with_length(path_indices.len() as u32);
+            for (i, val) in path_indices.iter().enumerate() {
+                js_path_indices.set(i as u32, JsValue::from_f64(*val as f64));
+            }
+            Reflect::set(&obj, &"pathIndices".into(), &js_path_indices.into())?;
+        }
+        core_tree_types::HierarchyItem::InternalEntryItem { parent_hash, entry_index, boundary_key, child_hash, num_items_subtree } => {
+            Reflect::set(&obj, &"type".into(), &"InternalEntry".into())?;
+            Reflect::set(&obj, &"parentHash".into(), &js_sys::Uint8Array::from(&parent_hash[..]).into())?;
+            Reflect::set(&obj, &"entryIndex".into(), &JsValue::from_f64(entry_index as f64))?;
+            Reflect::set(&obj, &"boundaryKey".into(), &js_sys::Uint8Array::from(&boundary_key[..]).into())?;
+            Reflect::set(&obj, &"childHash".into(), &js_sys::Uint8Array::from(&child_hash[..]).into())?;
+            Reflect::set(&obj, &"numItemsSubtree".into(), &JsValue::from_f64(num_items_subtree as f64))?;
+        }
+        core_tree_types::HierarchyItem::LeafEntryItem { parent_hash, entry_index, key, value_repr_type, value_hash, value_size } => {
+            Reflect::set(&obj, &"type".into(), &"LeafEntry".into())?;
+            Reflect::set(&obj, &"parentHash".into(), &js_sys::Uint8Array::from(&parent_hash[..]).into())?;
+            Reflect::set(&obj, &"entryIndex".into(), &JsValue::from_f64(entry_index as f64))?;
+            Reflect::set(&obj, &"key".into(), &js_sys::Uint8Array::from(&key[..]).into())?;
+            Reflect::set(&obj, &"valueReprType".into(), &value_repr_type.into())?;
+            if let Some(vh) = value_hash {
+                Reflect::set(&obj, &"valueHash".into(), &js_sys::Uint8Array::from(&vh[..]).into())?;
+            }
+            Reflect::set(&obj, &"valueSize".into(), &JsValue::from_f64(value_size as f64))?;
+        }
+    }
+    Ok(obj.into())
+}
+
+
+#[wasm_bindgen]
+// Removed Serialize for now, will adjust lib.rs to use JsValue::from()
+pub struct WasmHierarchyScanPage {
+    items_internal: JsArray, // Keep internal name to avoid conflict with getter
+    has_next_page_internal: bool,
+    // --- Make this private ---
+    next_page_cursor_token_internal: Option<String>,
+}
+
+#[wasm_bindgen]
+impl WasmHierarchyScanPage {
+    // Constructor for internal use, not exposed to JS directly via wasm_bindgen constructor
+    // This is how it's populated from From<core_tree_types::HierarchyScanPage>
+    fn new(items: JsArray, has_next_page: bool, next_page_cursor_token: Option<String>) -> Self {
+        Self {
+            items_internal: items,
+            has_next_page_internal: has_next_page,
+            next_page_cursor_token_internal: next_page_cursor_token,
+        }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn items(&self) -> JsArray {
+        self.items_internal.clone() // Clone the JsArray reference
+    }
+
+    #[wasm_bindgen(getter = hasNextPage)]
+    pub fn has_next_page(&self) -> bool {
+        self.has_next_page_internal
+    }
+
+    // +++ Custom getter for non-Copy type +++
+    #[wasm_bindgen(getter = nextPageCursorToken)]
+    pub fn next_page_cursor_token(&self) -> Option<String> {
+        self.next_page_cursor_token_internal.clone()
+    }
+}
+
+impl From<core_tree_types::HierarchyScanPage> for WasmHierarchyScanPage {
+    fn from(core_page: core_tree_types::HierarchyScanPage) -> Self {
+        let js_items = JsArray::new_with_length(core_page.items.len() as u32);
+        for (i, core_item) in core_page.items.into_iter().enumerate() {
+            match hierarchy_item_to_jsvalue(core_item) {
+                Ok(js_item_val) => js_items.set(i as u32, js_item_val),
+                Err(_) => {
+                    gloo_console::error!("Failed to convert HierarchyItem to JsValue during WasmHierarchyScanPage conversion");
+                    // Set to null or undefined if conversion fails for an item
+                    js_items.set(i as u32, JsValue::NULL);
+                }
+            }
+        }
+        // Use the internal constructor pattern
+        WasmHierarchyScanPage::new(
+            js_items,
+            core_page.has_next_page,
+            core_page.next_page_cursor_token,
+        )
+    }
+}

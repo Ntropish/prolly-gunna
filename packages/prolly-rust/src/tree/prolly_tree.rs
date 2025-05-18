@@ -13,6 +13,8 @@ use super::cursor::Cursor;
 use super::types::{ScanArgs, ScanPage, ProcessedNodeUpdate, DeleteRecursionResult}; 
 use super::{io, core_logic};
 
+use super::hierarchy_cursor::HierarchyCursor;
+use super::types::{HierarchyScanArgs, HierarchyScanPage, HierarchyItem};
 
 #[derive(Debug)]
 pub struct ProllyTree<S: ChunkStore> {
@@ -298,6 +300,58 @@ impl<S: ChunkStore> ProllyTree<S> {
             has_previous_page: calculated_has_previous_page,
             next_page_cursor: actual_next_item_for_cursor.map(|(k, _v)| k),
             previous_page_cursor: first_item_key, // Or last_item_key_in_page if logic for prev cursor is different
+        })
+    }
+
+    pub async fn hierarchy_scan(&self, args: HierarchyScanArgs) -> Result<HierarchyScanPage> {
+        let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?;
+        let mut collected_items: Vec<HierarchyItem> = Vec::new();
+        
+        let mut has_next_page = false;
+        // Use usize::MAX if no limit is specified, but handle limit == 0 explicitly.
+        let limit = args.limit.unwrap_or(usize::MAX);
+
+        if limit == 0 {
+            // If limit is 0, check if there's any item at all to determine hasNextPage
+            // This behavior might need to be defined: does limit 0 mean "give me nothing, but tell me if there's more"?
+            // For now, let's assume limit 0 means empty result, and hasNextPage is true if tree is not empty.
+            // A simpler approach for limit 0: return empty items, and hasNextPage is true if cursor.next_item() is Some.
+             if args.limit == Some(0) { // Only if limit was explicitly 0
+                has_next_page = cursor.next_item().await?.is_some();
+                 return Ok(HierarchyScanPage {
+                    items: Vec::new(),
+                    has_next_page,
+                    next_page_cursor_token: None,
+                });
+            }
+        }
+
+        // Try to fetch one more item than the limit to determine hasNextPage
+        // Only loop up to limit + 1 if limit is not usize::MAX to prevent overflow
+        let iterations = if limit == usize::MAX { usize::MAX } else { limit + 1 };
+
+        for _i in 0..iterations {
+            match cursor.next_item().await? {
+                Some(item) => {
+                    if collected_items.len() < limit {
+                        collected_items.push(item);
+                    } else {
+                        // This is the (limit + 1)-th item (or more if limit was usize::MAX but we shouldn't reach here)
+                        has_next_page = true; 
+                        break; // Stop collecting, we just needed to know it exists
+                    }
+                }
+                None => { // No more items from cursor
+                    // has_next_page remains false if we didn't collect (limit + 1) items
+                    break;
+                }
+            }
+        }
+        
+        Ok(HierarchyScanPage {
+            items: collected_items,
+            has_next_page,
+            next_page_cursor_token: None,
         })
     }
 }
