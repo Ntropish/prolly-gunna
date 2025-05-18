@@ -45,6 +45,8 @@ pub enum ProllyError {
     #[error("Internal error: {0}")]
     InternalError(String), // For unexpected logical errors
 
+    #[error("JavaScript binding error: {0}")]
+    JsBindingError(String),
     // Add more specific error types as needed
 }
 

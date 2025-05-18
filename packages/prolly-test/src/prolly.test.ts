@@ -426,7 +426,7 @@ describe("WasmProllyTree", () => {
       expectU8Eq(retrieved, toU8("val_before"));
     });
 
-    it.only("should insert a larger batch potentially causing splits", async () => {
+    it("should insert a larger batch potentially causing splits", async () => {
       const tree = new WasmProllyTree(); // Default config
       const batchSize = 50; // Enough to likely cause splits
       const itemsToInsert = [] as { k: string; v: string }[];
