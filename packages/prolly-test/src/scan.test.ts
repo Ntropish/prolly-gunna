@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import {
   WasmProllyTree,
-  type WasmScanArgs,
+  type ScanOptions,
   type WasmScanPage,
 } from "prolly-wasm";
 
