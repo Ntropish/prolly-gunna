@@ -3,7 +3,6 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-// Ensure HierarchyScanOptions is imported if not already; it's aliased as HierarchyScanArgsWasm here
 import {
   type WasmProllyTree,
   type WasmHierarchyItem,
@@ -11,7 +10,6 @@ import {
 } from "prolly-wasm";
 import { u8ToString, toU8 } from "@/lib/prollyUtils"; //
 import u8ToHex from "@/utils/u8ToHex"; //
-// ... (other imports: icons, ui components, useDebounce)
 
 import {
   Loader2,
@@ -28,13 +26,10 @@ import { Label } from "@/components/ui/label";
 
 import { useDebounce } from "use-debounce";
 
-// --- Interfaces & Types --- (DisplayHierarchyItem, HierarchyScanPageResult remain the same)
-
-// Query key now includes offset indirectly via pageParam affecting queryFn
 type HierarchyQuery_QueryKey = readonly [
   string,
   string | null,
-  Omit<HierarchyScanArgsWasm, "limit" | "offset"> // Base scan args without limit/offset
+  Omit<HierarchyScanArgsWasm, "limit" | "offset">
 ];
 
 interface DisplayHierarchyItem {
