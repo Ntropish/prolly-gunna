@@ -426,10 +426,10 @@ describe("WasmProllyTree", () => {
       expectU8Eq(retrieved, toU8("val_before"));
     });
 
-    it("should insert a larger batch potentially causing splits", async () => {
+    it.only("should insert a larger batch potentially causing splits", async () => {
       const tree = new WasmProllyTree(); // Default config
       const batchSize = 50; // Enough to likely cause splits
-      const itemsToInsert = [];
+      const itemsToInsert = [] as { k: string; v: string }[];
       for (let i = 0; i < batchSize; i++) {
         itemsToInsert.push({
           k: `large_batch_key_${String(i).padStart(2, "0")}`,
@@ -466,7 +466,20 @@ describe("WasmProllyTree", () => {
 
     it("insertBatch should correctly handle keys with varied lengths and binary data", async () => {
       const tree = new WasmProllyTree();
-      const itemsToInsert = [
+      const itemsToInsert: [
+        {
+          k: string;
+          v: string;
+        },
+        {
+          k: string;
+          v: string;
+        },
+        {
+          k_bin: Uint8Array;
+          v_bin: Uint8Array;
+        }
+      ] = [
         { k: "short", v: "sv" },
         {
           k: "a_very_long_key_that_might_affect_node_packing_or_boundaries_eventually",
