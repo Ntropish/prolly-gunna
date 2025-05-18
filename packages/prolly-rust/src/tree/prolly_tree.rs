@@ -304,26 +304,37 @@ impl<S: ChunkStore> ProllyTree<S> {
     }
 
     pub async fn hierarchy_scan(&self, args: HierarchyScanArgs) -> Result<HierarchyScanPage> {
-        let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?;
-        let mut collected_items: Vec<HierarchyItem> = Vec::new();
+        let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?; //
         
+        // --- Handle offset: Skip items if offset is provided ---
+        if let Some(offset_val) = args.offset {
+            if offset_val > 0 { // Only skip if offset is greater than 0
+                for _in_offset_loop in 0..offset_val {
+                    if cursor.next_item().await?.is_none() { //
+                        // Offset is beyond the total number of available items
+                        return Ok(HierarchyScanPage {
+                            items: Vec::new(),
+                            has_next_page: false,
+                            next_page_cursor_token: None,
+                        });
+                    }
+                }
+            }
+        }
+        // --- End offset handling ---
+        
+        let mut collected_items: Vec<HierarchyItem> = Vec::new(); //
         let mut has_next_page = false;
-        // Use usize::MAX if no limit is specified, but handle limit == 0 explicitly.
         let limit = args.limit.unwrap_or(usize::MAX);
 
-        if limit == 0 {
-            // If limit is 0, check if there's any item at all to determine hasNextPage
-            // This behavior might need to be defined: does limit 0 mean "give me nothing, but tell me if there's more"?
-            // For now, let's assume limit 0 means empty result, and hasNextPage is true if tree is not empty.
-            // A simpler approach for limit 0: return empty items, and hasNextPage is true if cursor.next_item() is Some.
-             if args.limit == Some(0) { // Only if limit was explicitly 0
-                has_next_page = cursor.next_item().await?.is_some();
-                 return Ok(HierarchyScanPage {
-                    items: Vec::new(),
-                    has_next_page,
-                    next_page_cursor_token: None,
-                });
-            }
+        if args.limit == Some(0) { // Handle explicit request for 0 items
+            // Check if there's at least one item *after the offset*
+            has_next_page = cursor.next_item().await?.is_some(); //
+            return Ok(HierarchyScanPage {
+                items: Vec::new(),
+                has_next_page,
+                next_page_cursor_token: None,
+            });
         }
 
         // Try to fetch one more item than the limit to determine hasNextPage

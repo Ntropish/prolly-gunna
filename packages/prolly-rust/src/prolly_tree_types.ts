@@ -146,6 +146,7 @@ export interface HierarchyScanOptions {
   startKey?: Uint8Array;
   maxDepth?: number;
   limit?: number;
+  offset?: number;
 }
 
 export interface HierarchyScanPageResult {

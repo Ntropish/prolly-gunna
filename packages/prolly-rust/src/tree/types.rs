@@ -90,10 +90,8 @@ pub struct HierarchyScanArgs {
 
     /// Limit the number of hierarchy items returned in one page.
     pub limit: Option<usize>,
-    // Note: Offset might be complex to implement meaningfully for a hierarchical scan
-    // unless it's a flat list of items. For now, we'll omit it and rely on cursors.
 
-    // Consider adding filters in the future, e.g., only show internal nodes, only leaf nodes.
+    pub offset: Option<usize>,
 }
 
 /// Represents an item encountered during a hierarchy scan.

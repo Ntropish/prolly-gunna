@@ -19,6 +19,7 @@ import { BasicOpsComponent } from "./treeOperations/BasicOps";
 import { DataExplorerComponent } from "./treeOperations/DataExplorer";
 import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps";
 import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
+import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
 import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea"; // Import new component
 import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader"; // Import new component
 import {
@@ -92,6 +93,20 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
         <OperationSection title="Scan" defaultOpen={true}>
           {treeState.tree ? (
             <VirtualizedTreeItems
+              currentRoot={treeState.rootHash}
+              tree={treeState.tree as WasmProllyTree}
+              treeId={treeState.id}
+              height="400px"
+              itemHeight={65}
+            />
+          ) : (
+            <p>Tree instance not available.</p>
+          )}
+        </OperationSection>
+
+        <OperationSection title="Tree Scan" defaultOpen={true}>
+          {treeState.tree ? (
+            <VirtualizedHierarchyScan
               currentRoot={treeState.rootHash}
               tree={treeState.tree as WasmProllyTree}
               treeId={treeState.id}
