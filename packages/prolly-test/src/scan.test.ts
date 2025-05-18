@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { WasmProllyTree } from "prolly-wasm";
+import {
+  WasmProllyTree,
+  type WasmScanArgs,
+  type WasmScanPage,
+} from "prolly-wasm";
 
 // Assuming you have these helpers, or define them here/import them
 // from a shared test utility file.
