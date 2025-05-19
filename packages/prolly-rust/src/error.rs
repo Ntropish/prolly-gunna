@@ -18,12 +18,6 @@ pub enum ProllyError {
     #[error("Storage operation failed: {0}")]
     StorageError(String), // Generic storage error
 
-    #[error("I/O error: {source}")]
-    IoError {
-        #[from]
-        source: std::io::Error,
-    },
-
     #[error("Bincode serialization/deserialization error: {source}")]
     BincodeError {
         #[from]
@@ -47,15 +41,35 @@ pub enum ProllyError {
 
     #[error("JavaScript binding error: {0}")]
     JsBindingError(String),
+
+    #[error("Invalid file format: {0}")]
+    InvalidFileFormat(String),
+    #[error("Checksum mismatch: {context}")]
+    ChecksumMismatch { context: String },
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Deserialization error: {0}")]
+    Deserialization(String),
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Wasm/JS interop error: {0}")]
+    WasmInteropError(String),
+
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
     // Add more specific error types as needed
+
+    
 }
 
 /// Result type alias for Prolly Tree operations.
 pub type Result<T> = std::result::Result<T, ProllyError>;
 
-// Example of how you might convert a bincode error if not using #[from] directly everywhere
-// impl From<bincode::Error> for ProllyError {
-//     fn from(err: bincode::Error) -> Self {
-//         ProllyError::NodeSerialization(err.to_string()) // Or a more specific variant
-//     }
-// }
+// Helper for converting JsValue errors from wasm-bindgen
+#[cfg(target_arch = "wasm32")]
+impl From<wasm_bindgen::JsValue> for ProllyError {
+    fn from(value: wasm_bindgen::JsValue) -> Self {
+        ProllyError::WasmInteropError(format!("{:?}", value))
+    }
+}

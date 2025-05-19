@@ -1,0 +1,48 @@
+// --- File Header ---
+[File Signature (8 bytes)] (e.g., "PRLYTRV2") // New signature for V2
+[Format Version (1 byte)] (e.g., 0x02)
+[Header Flags (1 byte)] (e.g., for future use, like indicating compression type for index)
+[Offset to Metadata Block (8 bytes)] // Points to the start of Metadata Block
+[Offset to Chunk Index Block (8 bytes)] // Points to the start of Chunk Index Block
+[Offset to EOF Block (8 bytes)] // Points to the start of the EOF block (and thus total file length initially)
+[Reserved (8 bytes)] // For future header expansion
+
+// --- Chunk Data Blocks (variable, laid out contiguously or otherwise) ---
+// Each chunk data block is just the raw chunk bytes. Their order isn't strictly
+// defined by their appearance in the tree, allowing for append-only strategies.
+// Chunks are referenced by their hash via the Chunk Index Block.
+[Chunk Data 1 (variable bytes)]
+[Chunk Data 2 (variable bytes)]
+...
+[Chunk Data N (variable bytes)]
+
+// --- Chunk Index Block ---
+[Tag: 0x20 (1 byte)] // Tag for Chunk Index Block
+[Length of this Index Block Content (4 bytes)]
+[Number of Index Entries (4 bytes)]
+[Index Entries (repeated)]
+    [Chunk Hash (32 bytes)]
+    [Offset of Chunk Data in File (8 bytes)]
+    [Length of Chunk Data (4 bytes)]
+    [Optional: Chunk type/flags (1 byte) - e.g., leaf, intermediate, custom hints]
+... (more index entries) ...
+[Checksum of Index Block (e.g., CRC32/XXH3, 4 or 8 bytes)] // To verify index integrity
+
+// --- Metadata Block ---
+[Tag: 0x01 (1 byte)]
+[Length of Metadata Content (4 bytes)]
+[Serialized Metadata Content (JSON/Bincode)]
+    - rootHash: Option<[u8; 32]>
+    - treeConfig: TreeConfig { ... }
+    - (optional) createdAt: String
+    - (optional) description: String
+    - (optional) totalChunkDataBytes: u64 // Sum of all chunk data lengths
+[Checksum of Metadata Block (e.g., CRC32/XXH3, 4 or 8 bytes)]
+
+// --- End Of File (EOF) Block / Footer ---
+[Tag: 0xFF (1 byte)] // Signifies clean end / footer
+[Length of this Footer (4 bytes)] // For any future footer content
+[Offset to Metadata Block (8 bytes)] // Repeated for robustness / easier finding from end
+[Offset to Chunk Index Block (8 bytes)] // Repeated
+[File Signature (8 bytes)] // Repeated, e.g., "V2YRLPTE" (reversed signature)
+[Overall File Checksum (e.g., hash of all preceding bytes, 32 bytes)] // Optional but good for integrity
