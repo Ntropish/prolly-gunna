@@ -1,7 +1,7 @@
 // packages/prolly-rust/src/store/file_io_v2.rs
 use super::format_v2::{
     FileHeaderV2, ChunkIndexEntryV2, MetadataContentV2, EofBlockV2, ContentBlockEnvelope,
-    FILE_SIGNATURE_V2, FORMAT_VERSION_V2, CHUNK_HASH_SIZE, BLAKE3_CHECKSUM_SIZE, // Added BLAKE3_CHECKSUM_SIZE
+    FILE_SIGNATURE_V2, FORMAT_VERSION_V2, CHUNK_HASH_SIZE, 
     TAG_CHUNK_INDEX_BLOCK, TAG_METADATA_BLOCK, TAG_EOF_BLOCK,
     calculate_crc32, calculate_blake3_hash
 };

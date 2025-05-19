@@ -27,6 +27,7 @@ blake3 = "1.8.2"
 thiserror = "1.0.69"            
 async-trait = "0.1.88"          
 console_error_panic_hook = { version = "0.1.7", optional = true }
+hex = "0.4"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.50"   
