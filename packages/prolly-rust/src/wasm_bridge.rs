@@ -169,34 +169,3 @@ impl From<core_tree_types::HierarchyScanPage> for WasmHierarchyScanPage {
     }
 }
 
-#[wasm_bindgen(js_name = saveTreeToBytesV2)]
-pub fn wasm_save_tree_to_bytes_v2(
-    tree: &WasmProllyTree, // Assuming WasmProllyTree is your tree wrapper
-    description_js: JsValue,
-) -> Result<js_sys::Uint8Array, JsValue> {
-    // Placeholder - actual implementation will extract data from `tree`
-    // let (root_hash, tree_config, chunks_map) = get_tree_components_for_serialization(tree)?;
-    // let description: Option<String> = description_js.as_string();
-    // file_io_v2::write_prly_tree_v2(root_hash, &tree_config, &chunks_map, description)
-    //     .map(|vec_u8| js_sys::Uint8Array::from(&vec_u8[..]))
-    //     .map_err(|e| JsValue::from_str(&e.to_string()))
-    Err(JsValue::from_str("saveTreeToBytesV2 not fully implemented yet"))
-}
-
-// This is likely line 178 or near it
-#[wasm_bindgen(js_name = loadTreeFromBytesV2)]
-pub fn wasm_load_tree_from_bytes_v2(
-    file_bytes_js: js_sys::Uint8Array,
-) -> Result<JsValue, JsValue> {
-    // Placeholder - actual implementation will call read_prly_tree_v2 and package results
-    // let file_bytes = file_bytes_js.to_vec();
-    // match file_io_v2::read_prly_tree_v2(&file_bytes) {
-    //     Ok((root_hash_opt, tree_config, chunks_map_rust, description_opt)) => {
-    //         let result_obj = js_sys::Object::new();
-    //         // ... convert components and set on result_obj ...
-    //         Ok(result_obj.into())
-    //     }
-    //     Err(e) => Err(JsValue::from_str(&e.to_string())),
-    // }
-    Err(JsValue::from_str("loadTreeFromBytesV2 not fully implemented yet"))
-}
