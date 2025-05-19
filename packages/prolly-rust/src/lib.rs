@@ -6,6 +6,8 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use js_sys::{Promise, Uint8Array as JsUint8Array, Map as JsMap, Object, Reflect, Array as JsArray};
 
+use std::collections::HashMap;
+
 // Declare all our modules
 pub mod common;
 pub mod error;
@@ -16,6 +18,9 @@ pub mod tree;
 pub mod diff;
 pub mod gc;
 pub mod wasm_bridge;
+
+use crate::store::file_io_v2::{write_prly_tree_v2, read_prly_tree_v2};
+use crate::store::ChunkStore;
 
 // Corrected use statements
 use crate::tree::types as core_tree_types; // For core ScanArgs and ScanPage
@@ -85,6 +90,11 @@ extern "C" {
     pub type PromiseCursorNextReturn;
     #[wasm_bindgen(typescript_type = "Promise<HierarchyScanFnReturn>")]
     pub type PromiseHierarchyScanReturn; 
+
+    #[wasm_bindgen(typescript_type = "Promise<ExportTreeToFileFnReturn>")]
+    pub type PromiseExportTreeToFileFnReturn;
+    #[wasm_bindgen(typescript_type = "Promise<LoadTreeFromFileFnReturn>")]
+    pub type PromiseLoadTreeFromFileFnReturn;
 }
 // --- End TypeScript Custom Section ---
 
@@ -506,4 +516,78 @@ impl WasmProllyTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
+    #[wasm_bindgen(js_name = saveTreeToFileBytes)]
+    pub fn save_tree_to_file_bytes(&self, description: Option<String>) -> PromiseExportTreeToFileFnReturn {
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            let tree_guard = tree_clone.lock().await;
+
+            let root_hash = tree_guard.get_root_hash();
+            let tree_config = tree_guard.config.clone();
+            
+            // Line 529 where HashMap was not found
+            let chunks_map_rust: HashMap<Hash, Vec<u8>> = tree_guard.store.get_all_chunks_for_test().await;
+
+            match write_prly_tree_v2(root_hash, &tree_config, &chunks_map_rust, description) {
+                Ok(file_bytes) => Ok(JsValue::from(JsUint8Array::from(&file_bytes[..]))),
+                Err(e) => Err(prolly_error_to_jsvalue(e)),
+            }
+        };
+        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = loadTreeFromFileBytes)]
+    pub fn load_tree_from_file_bytes(file_bytes_js: &JsUint8Array) -> PromiseLoadTreeFromFileFnReturn {
+        let file_bytes: Vec<u8> = file_bytes_js.to_vec();
+
+        let future = async move {
+            match read_prly_tree_v2(&file_bytes) {
+                Ok((root_hash_opt, tree_config, chunks_map_rust, _description)) => {
+                    let store_instance = InMemoryStore::new();
+                    let store_arc = Arc::new(store_instance);
+
+                    for (expected_hash, data) in chunks_map_rust { // Renamed 'hash' to 'expected_hash' for clarity
+                        // Line 551 where 'put' signature was mismatched
+                        // The 'put' method in ChunkStore takes only 'data' and returns the calculated hash.
+                        // See: src/store/chunk_store.rs
+                        // And its implementation in: src/store/mem_store.rs
+                        let actual_hash_result = ChunkStore::put(&*store_arc, data).await;
+                        
+                        match actual_hash_result {
+                            Ok(actual_hash) => {
+                                if actual_hash != expected_hash {
+                                    // Hashes don't match, data integrity issue or mismatch in hash functions
+                                    return Err(prolly_error_to_jsvalue(ProllyError::InternalError(
+                                        format!("Hash mismatch for chunk during file load. Expected: {:?}, Calculated by store: {:?}", expected_hash, actual_hash)
+                                    )));
+                                }
+                                // If hashes match, chunk is now in store, proceed.
+                            }
+                            Err(e) => {
+                                // Error during .put() operation
+                                return Err(prolly_error_to_jsvalue(e));
+                            }
+                        }
+                    }
+
+                    let tree_result = if let Some(root_hash) = root_hash_opt {
+                        ProllyTree::from_root_hash(root_hash, Arc::clone(&store_arc), tree_config).await
+                    } else {
+                        Ok(ProllyTree::new(Arc::clone(&store_arc), tree_config))
+                    };
+
+                    tree_result
+                        .map(|tree| {
+                            WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
+                        })
+                        .map_err(prolly_error_to_jsvalue)
+                }
+                Err(e) => Err(prolly_error_to_jsvalue(e)),
+            }
+        };
+        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+
 }
+

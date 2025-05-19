@@ -3,7 +3,6 @@ use crate::tree::types as core_tree_types;
 use crate::common::{Key, Value}; // Key and Value are Vec<u8>
 use wasm_bindgen::prelude::*;
 use js_sys::{Object, Reflect, Uint8Array as JsUint8Array, Array as JsArray};
-use crate::WasmProllyTree; 
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)] // Not deriving Serde, this is constructed from core_tree_types::ScanPage
