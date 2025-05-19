@@ -299,7 +299,6 @@ export function useGarbageCollectMutation() {
 }
 
 // --- Refresh Root Hash Mutation ---
-// ... (existing useRefreshRootHashMutation)
 export function useRefreshRootHashMutation() {
   const { updateTreeState } = useAppStore();
   return useMutation({
@@ -324,70 +323,48 @@ export function useRefreshRootHashMutation() {
 }
 
 // --- Save Tree To File Mutation ---
-// ... (existing useSaveTreeToFileMutation)
-interface SaveTreeArgs extends BaseTreeMutationArgs {}
+interface SaveTreeArgs extends BaseTreeMutationArgs {
+  description?: string; // Optional description for the V2 format
+}
 export function useSaveTreeToFileMutation() {
-  const { trees } = useAppStore();
+  const { trees } = useAppStore(); // Still used to get treeId or other metadata if needed for filename
   return useMutation({
     mutationFn: async (args: SaveTreeArgs) => {
       const currentTreeState = trees.find((t) => t.id === args.treeId);
-      if (!currentTreeState || !currentTreeState.treeConfig) {
-        throw new Error("Tree configuration not found for saving.");
+      if (!currentTreeState) {
+        // It's good to check if the tree exists in the app's state,
+        // though args.tree is the primary WasmProllyTree instance.
+        throw new Error(
+          `Tree with ID "${args.treeId}" not found in app state.`
+        );
       }
-      const rootHashU8 = await args.tree.getRootHash();
-      const treeConfig = currentTreeState.treeConfig;
-      const chunkMap = (await args.tree.exportChunks()) as Map<
-        Uint8Array,
-        Uint8Array
-      >;
-      const chunkCount = chunkMap.size;
-      const metadata = {
-        rootHash: rootHashU8 ? u8ToHex(rootHashU8) : null,
-        treeConfig: treeConfig,
-        createdAt: new Date().toISOString(),
-        chunkCount: chunkCount,
+
+      // Call the Wasm function to get the file bytes
+      // The saveTreeToFileBytes method is on the WasmProllyTree instance.
+      // It takes an optional description string.
+      const fileBytesU8 = await args.tree.saveTreeToFileBytes(
+        args.description || undefined
+      ); // Pass description or undefined
+
+      if (!fileBytesU8 || fileBytesU8.length === 0) {
+        throw new Error("Wasm module returned empty file data.");
+      }
+
+      // The Wasm function now returns a Uint8Array directly
+      return {
+        buffer: fileBytesU8.buffer, // Get ArrayBuffer from Uint8Array for Blob
+        filename: generateTreeFilename(args.treeId), // Keep your filename generation logic
       };
-      const metadataJsonString = JSON.stringify(metadata);
-      const metadataBytes = toU8(metadataJsonString);
-      let totalSize = FILE_SIGNATURE.length + 1 + 1 + 4 + metadataBytes.length;
-      const chunksArray: { hash: Uint8Array; data: Uint8Array }[] = [];
-      for (const [hashU8, dataU8] of chunkMap.entries()) {
-        chunksArray.push({ hash: hashU8, data: dataU8 });
-        totalSize += 1 + 4 + 32 + dataU8.length;
-      }
-      const buffer = new ArrayBuffer(totalSize);
-      const view = new DataView(buffer);
-      let offset = 0;
-      toU8(FILE_SIGNATURE).forEach((byte, i) =>
-        view.setUint8(offset + i, byte)
-      );
-      offset += FILE_SIGNATURE.length;
-      view.setUint8(offset, FILE_VERSION);
-      offset += 1;
-      view.setUint8(offset, TAG_METADATA);
-      offset += 1;
-      view.setUint32(offset, metadataBytes.length, true);
-      offset += 4;
-      new Uint8Array(buffer, offset, metadataBytes.length).set(metadataBytes);
-      offset += metadataBytes.length;
-      for (const chunk of chunksArray) {
-        view.setUint8(offset, TAG_CHUNK);
-        offset += 1;
-        view.setUint32(offset, 32 + chunk.data.length, true);
-        offset += 4;
-        new Uint8Array(buffer, offset, 32).set(chunk.hash);
-        offset += 32;
-        new Uint8Array(buffer, offset, chunk.data.length).set(chunk.data);
-        offset += chunk.data.length;
-      }
-      return { buffer, filename: generateTreeFilename(args.treeId) };
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
       triggerBrowserDownload(data.buffer, data.filename);
       toast.success("Tree saved to file successfully.");
     },
     onError: (error: Error) => {
-      toast.error(`Save tree failed: ${error.message}`);
+      console.error("Save tree to file failed:", error);
+      toast.error(
+        `Save tree failed: ${error.message || "Wasm error during save"}`
+      );
     },
   });
 }
@@ -532,12 +509,6 @@ export function useDownloadScanAsJsonlMutation() {
     },
   });
 }
-
-// Constants
-const FILE_SIGNATURE = "PRLYTRE1";
-const FILE_VERSION = 0x01;
-const TAG_METADATA = 0x01;
-const TAG_CHUNK = 0x10;
 
 const generateTreeFilename = (treeId: string): string => {
   const cleanTreeId = treeId.replace(/[^a-z0-9]/gi, "_").toLowerCase();
