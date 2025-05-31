@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, FileUp } from "lucide-react";
-import { useApplyJsonlBatchMutation } from "@/hooks/useTreeMutations";
 import { toast } from "sonner";
+import { useApplyJsonlMutation } from "./hooks/useApplyJsonlMutation";
 
 interface JsonlFileLoaderProps {
   tree: WasmProllyTree;
@@ -19,7 +19,10 @@ export const JsonlFileLoaderComponent: React.FC<JsonlFileLoaderProps> = ({
 }) => {
   const [isLoadingJsonlFile, setIsLoadingJsonlFile] = useState(false);
   const jsonlFileInputRef = useRef<HTMLInputElement>(null);
-  const applyJsonlMutation = useApplyJsonlBatchMutation();
+  const applyJsonlMutation = useApplyJsonlMutation({
+    tree,
+    treeId,
+  });
 
   const handleJsonlFileSelected = async (
     event: ChangeEvent<HTMLInputElement>
@@ -62,11 +65,7 @@ export const JsonlFileLoaderComponent: React.FC<JsonlFileLoaderProps> = ({
       }
 
       if (parsedItems.length > 0) {
-        applyJsonlMutation.mutate({
-          treeId: treeId,
-          tree: tree,
-          items: parsedItems,
-        });
+        applyJsonlMutation.mutate({ items: parsedItems });
       } else if (skippedLines === 0) {
         toast.info("JSONL file is empty or contains no valid entries.");
       }

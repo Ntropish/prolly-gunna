@@ -1,11 +1,9 @@
 // src/components/treeOperations/AdvancedOps.tsx
 import React, { useState } from "react";
 import { type WasmProllyTree } from "prolly-wasm";
-import { type TreeState } from "@/useAppStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
 // u8ToString, hexToU8 are now used within mutations
 // import { toast } from "sonner"; // Handled by mutations
