@@ -5,12 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
-// u8ToString, hexToU8 are now used within mutations
-// import { toast } from "sonner"; // Handled by mutations
-import {
-  useDiffTreesMutation,
-  useGarbageCollectMutation,
-} from "@/hooks/useTreeMutations";
+import { useGarbageCollectMutation } from "@/hooks/useTreeMutations";
 import { useMutation } from "@tanstack/react-query";
 import { hexToU8, u8ToString } from "@/lib/prollyUtils";
 import { toast } from "sonner";
@@ -20,9 +15,6 @@ import { ScrollArea } from "@radix-ui/react-scroll-area";
 interface AdvancedOpsProps {
   tree: WasmProllyTree;
   treeId: string;
-  // diffResult: TreeState["diffResult"]; // Display data from Zustand store
-  // gcCollectedCount: TreeState["gcCollectedCount"]; // Display data
-  // triggerChunkExport prop is removed
 }
 interface StringDiffEntry {
   key: string;
@@ -32,8 +24,6 @@ interface StringDiffEntry {
 export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
   tree,
   treeId,
-  // diffResult,
-  // gcCollectedCount,
 }) => {
   const [diffHash1, setDiffHash1] = useState("");
   const [diffHash2, setDiffHash2] = useState("");
