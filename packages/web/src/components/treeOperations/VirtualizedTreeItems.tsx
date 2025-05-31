@@ -205,13 +205,6 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
       !!tree && filteredTotalItems !== undefined && filteredTotalItems > 0,
   });
 
-  console.log({
-    tree,
-    filteredTotalItems,
-    unfilteredTotalItems,
-    appliedScanArgs,
-  });
-
   const allFetchedRawItems = useMemo(() => {
     return infiniteQueryData?.pages.flatMap((page) => page.items) ?? [];
   }, [infiniteQueryData]);
