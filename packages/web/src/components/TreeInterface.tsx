@@ -20,14 +20,12 @@ import { DataExplorerComponent } from "./treeOperations/DataExplorer";
 import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps";
 import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
 import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
-import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea"; // Import new component
-import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader"; // Import new component
+import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea";
+import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader";
 import {
   useRefreshRootHashMutation,
   useSaveTreeToFileMutation,
-  // useApplyJsonlBatchMutation // Not directly used here anymore
 } from "@/hooks/useTreeMutations";
-// import { toast } from "sonner"; // Not directly used here
 
 interface TreeInterfaceProps {
   treeState: TreeState;

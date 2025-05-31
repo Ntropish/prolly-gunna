@@ -1,6 +1,6 @@
 import "./App.css";
-import React, { useState, useEffect, type ChangeEvent, useRef } from "react";
-import { WasmProllyTree } from "prolly-wasm"; // Ensure this import path is correct
+import { useState, useEffect, type ChangeEvent, useRef } from "react";
+import { WasmProllyTree } from "prolly-wasm";
 import {
   useAppStore,
   type TreeState,
@@ -12,18 +12,8 @@ import { Label } from "./components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { TreeInterface } from "./components/TreeInterface";
-import {
-  Loader2,
-  FileUp,
-  PlusCircle,
-  // XCircle, // No longer used from here if Alert is commented out
-  TreeDeciduous,
-} from "lucide-react";
-import {
-  u8ToHex,
-  hexToU8, // Still needed if you manually create rootHash for display from loaded hex
-  // u8ToString,     // No longer needed here for parsing
-} from "@/lib/prollyUtils"; // Adjust path if necessary
+import { Loader2, FileUp, PlusCircle, TreeDeciduous } from "lucide-react";
+import { u8ToHex } from "@/lib/prollyUtils";
 import { Toaster, toast } from "sonner";
 
 function App() {
@@ -100,7 +90,6 @@ function App() {
     }
   };
 
-  // MODIFIED processAndLoadFile function
   const processAndLoadFile = async (file: File) => {
     setIsLoadingFile(true);
     // setGlobalFeedback(null); // If using globalFeedback
