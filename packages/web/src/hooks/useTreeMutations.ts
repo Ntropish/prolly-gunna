@@ -233,23 +233,23 @@ export function useGarbageCollectMutation() {
 
 // --- Refresh Root Hash Mutation ---
 export function useRefreshRootHashMutation() {
-  const { updateTreeState } = useAppStore();
+  // const { updateTreeState } = useAppStore();
   return useMutation({
     mutationFn: async (args: BaseTreeMutationArgs) => {
       const newRootHashU8 = await args.tree.getRootHash();
       return { treeId: args.treeId, newRootHash: u8ToHex(newRootHashU8) };
     },
     onSuccess: (data) => {
-      updateTreeState(data.treeId, {
-        rootHash: data.newRootHash,
-        lastError: null,
-      });
+      useProllyStore.getState().treeUpdated(data.treeId);
       toast.success("Root hash refreshed.");
     },
     onError: (error: Error, variables) => {
-      updateTreeState(variables.treeId, {
-        lastError: `Failed to refresh root hash: ${error.message}`,
-      });
+      useProllyStore
+        .getState()
+        .treeError(
+          variables.treeId,
+          `Failed to refresh root hash: ${error.message}`
+        );
       toast.error(`Failed to refresh root hash: ${error.message}`);
     },
   });
@@ -260,33 +260,27 @@ interface SaveTreeArgs extends BaseTreeMutationArgs {
   description?: string; // Optional description for the V2 format
 }
 export function useSaveTreeToFileMutation() {
-  const { trees } = useAppStore(); // Still used to get treeId or other metadata if needed for filename
+  const trees = useProllyStore((s) => s.trees);
   return useMutation({
     mutationFn: async (args: SaveTreeArgs) => {
-      const currentTreeState = trees.find((t) => t.id === args.treeId);
+      const currentTreeState = trees[args.treeId];
       if (!currentTreeState) {
-        // It's good to check if the tree exists in the app's state,
-        // though args.tree is the primary WasmProllyTree instance.
         throw new Error(
           `Tree with ID "${args.treeId}" not found in app state.`
         );
       }
 
-      // Call the Wasm function to get the file bytes
-      // The saveTreeToFileBytes method is on the WasmProllyTree instance.
-      // It takes an optional description string.
-      const fileBytesU8 = await args.tree.saveTreeToFileBytes(
+      const fileBytesU8 = await currentTreeState.tree.saveTreeToFileBytes(
         args.description || undefined
-      ); // Pass description or undefined
+      );
 
       if (!fileBytesU8 || fileBytesU8.length === 0) {
         throw new Error("Wasm module returned empty file data.");
       }
 
-      // The Wasm function now returns a Uint8Array directly
       return {
-        buffer: fileBytesU8.buffer, // Get ArrayBuffer from Uint8Array for Blob
-        filename: generateTreeFilename(args.treeId), // Keep your filename generation logic
+        buffer: fileBytesU8.buffer,
+        filename: generateTreeFilename(args.treeId),
       };
     },
     onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {

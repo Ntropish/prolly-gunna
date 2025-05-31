@@ -12,8 +12,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { TreeInterface } from "@/components/TreeInterface";
 import { Toaster, toast } from "sonner";
 import { Loader2, FileUp, PlusCircle, TreeDeciduous } from "lucide-react";
+import { useNavigate, useParams } from "react-router";
 
 export default function App() {
+  const navigate = useNavigate();
   // ────────────────────────────────────────────────────────────
   //  1.  Store selectors
   // ────────────────────────────────────────────────────────────
@@ -30,16 +32,20 @@ export default function App() {
   // ────────────────────────────────────────────────────────────
   //  2.  UI state
   // ────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<string>();
+  // const [activeTab, setActiveTab] = useState<string>();
+  const { treeId: activeTab } = useParams();
   const [working, setWorking] = useState<"create" | "load" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // keep activeTab valid
   useEffect(() => {
-    if (!activeTab && trees.length) setActiveTab(trees[0].id);
-    if (activeTab && !trees.find((t) => t.id === activeTab))
-      setActiveTab(trees.length ? trees[0].id : undefined);
-  }, [trees, activeTab]);
+    if (!activeTab && trees.length) {
+      navigate(`/${trees[0].id}`);
+    }
+    if (activeTab && !trees.find((t) => t.id === activeTab)) {
+      navigate(`/${trees.length ? trees[0].id : undefined}`);
+    }
+  }, [trees, activeTab, navigate]);
 
   // ────────────────────────────────────────────────────────────
   //  3.  Light helpers – push into store if you prefer
@@ -49,7 +55,7 @@ export default function App() {
     try {
       const id = await useProllyStore.getState().createNewTree();
       toast.success(`Created "${id}" (unsaved)`);
-      setActiveTab(id);
+      navigate(`/${id}`);
     } catch (err: any) {
       toast.error(`New tree failed: ${err.message ?? "Unknown"}`);
     } finally {
@@ -90,7 +96,7 @@ export default function App() {
       //   },
       // }));
       toast.success(`Loaded "${file.name}"`);
-      setActiveTab(id);
+      navigate(`/${id}`);
     } catch (err: any) {
       toast.error(`Load failed: ${err.message ?? "Unknown"}`);
     } finally {
@@ -177,14 +183,15 @@ export default function App() {
           </p>
         </div>
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} className="w-full">
           <ScrollArea className="pb-2 -mx-1">
             <TabsList className="inline-flex h-auto bg-muted p-1 rounded-lg">
               {trees.map((t) => (
                 <TabsTrigger
                   key={t.id}
                   value={t.id}
-                  className="text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm px-3 py-1.5"
+                  className="text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm px-3 py-1.5 cursor-pointer"
+                  onClick={() => navigate(`/${t.id}`)}
                 >
                   {t.id.length > 18 ? `${t.id.slice(0, 18)}…` : t.id}
                   {t.rootHash !== t.lastSavedRootHash && "*"}

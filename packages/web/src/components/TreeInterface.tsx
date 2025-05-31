@@ -56,8 +56,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     treeId: treeState.id,
   };
 
-  console.log("treeState", treeState);
-
   return (
     <Card className="w-full shadow-lg border">
       <CardHeader>

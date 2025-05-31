@@ -157,9 +157,14 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
         await writable.write(bytes);
         await writable.close();
 
+        const rootHash = await treeEntry.tree.getRootHash();
+
+        const rootHashHex = rootHash ? u8ToHex(rootHash).toString() : null;
+
         set((s) => ({
           trees: produce(s.trees, (draft) => {
-            draft[treeId].lastSavedRootHash = draft[treeId].rootHash;
+            draft[treeId].rootHash = rootHashHex;
+            draft[treeId].lastSavedRootHash = rootHashHex;
           }),
         }));
       } catch (err) {
@@ -189,6 +194,8 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
           };
         }),
       }));
+
+      await get().saveTree(id);
 
       return id;
     },
