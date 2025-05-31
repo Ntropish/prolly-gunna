@@ -4,6 +4,8 @@ import { useAppStore, type TreeState } from "@/useAppStore"; // Added TreeState 
 import { toU8, u8ToHex, u8ToString, hexToU8 } from "@/lib/prollyUtils"; // Added hexToU8
 import { toast } from "sonner";
 import type { ScanArgsWasm, ScanPageWasm } from "@/lib/types";
+import { useProllyStore } from "@/useProllyStore";
+import { produce } from "immer";
 
 // Common interface for mutation arguments that include tree context
 interface BaseTreeMutationArgs {
@@ -23,7 +25,7 @@ interface InsertItemArgs extends BaseTreeMutationArgs {
 }
 
 export function useInsertItemMutation() {
-  const { updateTreeState } = useAppStore();
+  // const { updateTreeState } = useAppStore();
   return useMutation({
     mutationFn: async (args: InsertItemArgs) => {
       if (!args.key) throw new Error("Insert key cannot be empty.");
@@ -36,51 +38,20 @@ export function useInsertItemMutation() {
       };
     },
     onSuccess: (data) => {
-      updateTreeState(data.treeId, {
-        rootHash: data.newRootHash,
-        lastError: null,
-      });
+      useProllyStore.setState((s) => ({
+        trees: produce(s.trees, (draft) => {
+          draft[data.treeId].rootHash = data.newRootHash;
+        }),
+      }));
       toast.success(`Item "${data.insertedKey}" inserted successfully.`);
     },
     onError: (error: Error, variables) => {
-      updateTreeState(variables.treeId, { lastError: error.message });
+      useProllyStore.setState((s) => ({
+        trees: produce(s.trees, (draft) => {
+          draft[variables.treeId].lastError = error.message;
+        }),
+      }));
       toast.error(`Insert failed for "${variables.key}": ${error.message}`);
-    },
-  });
-}
-
-// --- Get Item Mutation ---
-// ... (existing useGetItemMutation)
-interface GetItemArgs extends BaseTreeMutationArgs {
-  key: string;
-}
-export function useGetItemMutation() {
-  const { updateTreeState } = useAppStore();
-  return useMutation({
-    mutationFn: async (args: GetItemArgs) => {
-      if (!args.key) throw new Error("Get key cannot be empty.");
-      const valueU8 = await args.tree.get(toU8(args.key));
-      return {
-        treeId: args.treeId,
-        key: args.key,
-        value: valueU8 ? u8ToString(valueU8) : null,
-      };
-    },
-    onSuccess: (data) => {
-      const displayValue =
-        data.value === null ? "null (not found)" : data.value;
-      updateTreeState(data.treeId, {
-        lastValue: displayValue,
-        lastError: null,
-      });
-      toast.success(`Value for "${data.key}": ${displayValue}`);
-    },
-    onError: (error: Error, variables) => {
-      updateTreeState(variables.treeId, {
-        lastError: error.message,
-        lastValue: null,
-      });
-      toast.error(`Get failed for "${variables.key}": ${error.message}`);
     },
   });
 }

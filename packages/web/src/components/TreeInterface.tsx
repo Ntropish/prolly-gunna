@@ -1,7 +1,7 @@
 // src/components/TreeInterface.tsx
 import React from "react"; // Removed useState, useRef, ChangeEvent from here
 import { type WasmProllyTree } from "prolly-wasm";
-import { type TreeState } from "@/useAppStore"; // Removed useAppStore if not directly used
+// import { type TreeState } from "@/useAppStore"; // Removed useAppStore if not directly used
 import {
   Card,
   CardContent,
@@ -12,11 +12,11 @@ import {
 } from "./ui/card";
 import { Button } from "./ui/button";
 // Input, Label, Textarea removed if not directly used here
-import { Loader2, FileDown, RefreshCw } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
+import { Loader2, FileDown, RefreshCw, Save } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
 
 import { OperationSection } from "./treeOperations/OperationSection";
 import { BasicOpsComponent } from "./treeOperations/BasicOps";
-import { DataExplorerComponent } from "./treeOperations/DataExplorer";
+import { DataExplorerComponent } from "./treeOperations/DataExplorer.old";
 import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps";
 import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
 import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
@@ -26,9 +26,10 @@ import {
   useRefreshRootHashMutation,
   useSaveTreeToFileMutation,
 } from "@/hooks/useTreeMutations";
+import { useProllyStore, type ProllyTree } from "@/useProllyStore";
 
 interface TreeInterfaceProps {
-  treeState: TreeState;
+  treeState: ProllyTree;
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
@@ -42,20 +43,20 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     });
   };
 
-  const handleSave = () => {
+  const handleDownload = () => {
     saveTreeMutation.mutate({ treeId: treeState.id, tree: treeState.tree });
+  };
+
+  const handleSave = () => {
+    useProllyStore.getState().saveTree(treeState.id);
   };
 
   const commonProps = {
     tree: treeState.tree,
     treeId: treeState.id,
   };
-  const dataDisplayProps = {
-    items: treeState.items,
-    chunks: treeState.chunks,
-    diffResult: treeState.diffResult,
-    gcCollectedCount: treeState.gcCollectedCount,
-  };
+
+  console.log("treeState", treeState);
 
   return (
     <Card className="w-full shadow-lg border">
@@ -64,6 +65,11 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           Tree Instance:{" "}
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
             {treeState.id}
+          </span>
+          <span className="ml-2">
+            <Button size="icon" onClick={handleSave}>
+              <Save className="h-4 w-4" />
+            </Button>
           </span>
         </CardTitle>
         <CardDescription className="pt-1">
@@ -126,20 +132,8 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </div>
         </OperationSection>
 
-        <OperationSection title="Log Chunks">
-          <DataExplorerComponent
-            {...commonProps}
-            items={dataDisplayProps.items}
-            chunks={dataDisplayProps.chunks}
-          />
-        </OperationSection>
-
         <OperationSection title="Advanced Operations">
-          <AdvancedOpsComponent
-            {...commonProps}
-            diffResult={dataDisplayProps.diffResult}
-            gcCollectedCount={dataDisplayProps.gcCollectedCount}
-          />
+          <AdvancedOpsComponent {...commonProps} />
         </OperationSection>
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2 pt-6 border-t sm:flex-row sm:justify-between">
@@ -157,7 +151,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           Refresh Root Hash
         </Button>
         <Button
-          onClick={handleSave}
+          onClick={handleDownload}
           disabled={saveTreeMutation.isPending}
           className="w-full sm:w-auto"
         >

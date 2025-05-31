@@ -1,204 +1,146 @@
-import "./App.css";
-import { useState, useEffect, type ChangeEvent, useRef } from "react";
+// src/App.tsx
+import { useEffect, useState, type ChangeEvent, useRef, useMemo } from "react";
 import { WasmProllyTree } from "prolly-wasm";
-import {
-  useAppStore,
-  type TreeState,
-  type JsTreeConfigType,
-} from "./useAppStore";
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
-import { Label } from "./components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
-import { ScrollArea } from "./components/ui/scroll-area";
-import { TreeInterface } from "./components/TreeInterface";
-import { Loader2, FileUp, PlusCircle, TreeDeciduous } from "lucide-react";
 import { u8ToHex } from "@/lib/prollyUtils";
+
+import { useProllyStore } from "@/useProllyStore"; //  ← NEW STORE
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { TreeInterface } from "@/components/TreeInterface";
 import { Toaster, toast } from "sonner";
+import { Loader2, FileUp, PlusCircle, TreeDeciduous } from "lucide-react";
 
-function App() {
-  const { trees, addTree } = useAppStore();
-  const [activeTab, setActiveTab] = useState<string | undefined>(undefined);
+export default function App() {
+  // ────────────────────────────────────────────────────────────
+  //  1.  Store selectors
+  // ────────────────────────────────────────────────────────────
+  const treesList = useProllyStore((s) => s.trees);
+  const trees = useMemo(
+    () =>
+      Object.values(treesList).map((tree) => ({
+        ...tree,
+      })),
+    [treesList]
+  );
+  const initializing = useProllyStore((s) => s.initializing);
 
-  const [isCreatingTree, setIsCreatingTree] = useState(false);
-  const [isLoadingFile, setIsLoadingFile] = useState(false);
+  // ────────────────────────────────────────────────────────────
+  //  2.  UI state
+  // ────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<string>();
+  const [working, setWorking] = useState<"create" | "load" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // keep activeTab valid
   useEffect(() => {
-    if (
-      (!activeTab && trees.length > 0) ||
-      (activeTab && !trees.find((t) => t.id === activeTab) && trees.length > 0)
-    ) {
-      setActiveTab(trees[0].id);
-    } else if (trees.length === 0) {
-      setActiveTab(undefined);
-    }
+    if (!activeTab && trees.length) setActiveTab(trees[0].id);
+    if (activeTab && !trees.find((t) => t.id === activeTab))
+      setActiveTab(trees.length ? trees[0].id : undefined);
   }, [trees, activeTab]);
 
-  const handleCreateTree = async () => {
-    setIsCreatingTree(true);
-    // setGlobalFeedback(null); // If using globalFeedback
-    const newTree = new WasmProllyTree();
-    const treeId = `Tree-${Date.now().toString().slice(-5)}`;
+  // ────────────────────────────────────────────────────────────
+  //  3.  Light helpers – push into store if you prefer
+  // ────────────────────────────────────────────────────────────
+  async function createNewTree() {
+    setWorking("create");
     try {
-      const rootHashU8 = await newTree.getRootHash(); // This is Uint8Array | null
-      const treeConfigFromWasm = await newTree.getTreeConfig();
-
-      // console.log(
-      //   "DEBUG: Raw treeConfigFromWasm (create):",
-      //   JSON.stringify(treeConfigFromWasm, null, 2)
-      // );
-
-      const treeConfig = treeConfigFromWasm as JsTreeConfigType;
-
-      if (!treeConfig || typeof treeConfig.targetFanout !== "number") {
-        // console.error(
-        //   "DEBUG: Validation failed (create)! treeConfig object:",
-        //   treeConfig,
-        //   "| typeof treeConfig:",
-        //   typeof treeConfig,
-        //   "| treeConfig.targetFanout:",
-        //   treeConfig?.targetFanout,
-        //   "| typeof treeConfig.targetFanout:",
-        //   typeof treeConfig?.targetFanout
-        // );
-        throw new Error(
-          "Failed to obtain valid tree configuration from new Wasm tree."
-        );
-      }
-
-      const newTreeState: TreeState = {
-        id: treeId,
-        tree: newTree,
-        rootHash: rootHashU8 ? u8ToHex(rootHashU8) : null, // Handle null rootHash
-        treeConfig: treeConfig,
-        lastError: null,
-        lastValue: null,
-        items: [],
-        chunks: [],
-        diffResult: [],
-        gcCollectedCount: null,
-      };
-      addTree(newTreeState);
-      toast.success(`Tree "${treeId}" created successfully.`);
-      setActiveTab(treeId);
-    } catch (e: any) {
-      console.error("Failed to initialize tree:", e);
-      toast.error(`Failed to create tree: ${e.message || "Unknown error"}`);
+      const id = await useProllyStore.getState().createNewTree();
+      toast.success(`Created "${id}" (unsaved)`);
+      setActiveTab(id);
+    } catch (err: any) {
+      toast.error(`New tree failed: ${err.message ?? "Unknown"}`);
     } finally {
-      setIsCreatingTree(false);
+      setWorking(null);
     }
-  };
+  }
 
-  const processAndLoadFile = async (file: File) => {
-    setIsLoadingFile(true);
-    // setGlobalFeedback(null); // If using globalFeedback
-
+  async function updloadTreeFromFile(file: File) {
+    setWorking("load");
     try {
-      const fileBuffer = await file.arrayBuffer();
-      const fileBytes = new Uint8Array(fileBuffer);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const tree = await WasmProllyTree.loadTreeFromFileBytes(bytes);
+      const path = file.name;
 
-      // Call the Wasm function to load the tree from bytes
-      // This function is now static on WasmProllyTree
-      const newLoadedTreeInstance = await WasmProllyTree.loadTreeFromFileBytes(
-        fileBytes
-      );
+      const id = await useProllyStore.getState().createNewTree({
+        tree,
+        path,
+      });
 
-      // After successfully loading, get necessary info from the instance
-      const rootHashU8FromWasm = await newLoadedTreeInstance.getRootHash(); // Returns Promise<Uint8Array | null>
-      const treeConfigFromWasm = await newLoadedTreeInstance.getTreeConfig(); // Returns Promise<JsTreeConfigType>
-
-      // console.log(
-      //   "DEBUG: Raw treeConfigFromWasm (load):",
-      //   JSON.stringify(treeConfigFromWasm, null, 2)
-      // );
-
-      const loadedTreeConfig = treeConfigFromWasm as JsTreeConfigType;
-
-      if (
-        !loadedTreeConfig ||
-        typeof loadedTreeConfig.targetFanout !== "number"
-      ) {
-        // console.error(
-        //   "DEBUG: Validation failed (load)! treeConfig object:",
-        //   loadedTreeConfig
-        // );
-        throw new Error(
-          "Failed to obtain valid tree configuration from loaded Wasm tree."
-        );
-      }
-
-      const loadedRootHashHex = rootHashU8FromWasm
-        ? u8ToHex(rootHashU8FromWasm)
-        : null;
-
-      const treeId = `loaded-${file.name
-        .replace(/[^a-z0-9_.-]/gi, "_")
-        .substring(0, 15)}-${Date.now().toString().slice(-4)}`;
-
-      const newTreeState: TreeState = {
-        id: treeId,
-        tree: newLoadedTreeInstance,
-        rootHash: loadedRootHashHex,
-        treeConfig: loadedTreeConfig,
-        lastError: null,
-        lastValue: null,
-        items: [], // Items will be populated by UI interactions
-        chunks: [], // Chunks will be populated by UI interactions
-        diffResult: [],
-        gcCollectedCount: null,
-      };
-
-      addTree(newTreeState);
-      toast.success(`Tree "${file.name}" loaded as "${treeId}".`);
-      setActiveTab(treeId);
-    } catch (e: any) {
-      console.error("Failed to load tree from file:", e);
-      toast.error(`Load failed: ${e.message || "Wasm error during load"}`);
+      // useProllyStore.setState((s) => ({
+      //   trees: {
+      //     ...s.trees,
+      //     [id]: {
+      //       id,
+      //       tree,
+      //       treeConfig: cfg as any,
+      //       rootHash: root ? u8ToHex(root) : null,
+      //       lastSavedRootHash: root ? u8ToHex(root) : null,
+      //       isDirty: false,
+      //       fileHandle: null, // not linked to OPFS yet
+      //       lastError: null,
+      //       lastValue: null,
+      //       items: [],
+      //       chunks: [],
+      //       diffResult: [],
+      //       gcCollectedCount: null,
+      //     },
+      //   },
+      // }));
+      toast.success(`Loaded "${file.name}"`);
+      setActiveTab(id);
+    } catch (err: any) {
+      toast.error(`Load failed: ${err.message ?? "Unknown"}`);
     } finally {
-      setIsLoadingFile(false);
-      if (fileInputRef.current) fileInputRef.current.value = ""; // Clear file input
+      setWorking(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  };
+  }
 
-  const handleFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      processAndLoadFile(file);
-    }
-  };
+  function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) updloadTreeFromFile(f);
+  }
 
+  // ────────────────────────────────────────────────────────────
+  //  4.  Render
+  // ────────────────────────────────────────────────────────────
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-6 min-h-screen">
       <Toaster richColors />
+
+      {/* HEADER */}
       <header className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-6 border-b">
-        {/* ... Header content (unchanged) ... */}
         <div className="flex items-center gap-2">
           <TreeDeciduous className="h-8 w-8 text-primary" />
           <h1 className="text-3xl font-bold tracking-tight">Prolly Tree Web</h1>
         </div>
+
         <div className="flex gap-2 flex-wrap justify-center sm:justify-end">
           <Button
-            onClick={handleCreateTree}
-            disabled={isCreatingTree}
             size="sm"
+            onClick={createNewTree}
+            disabled={working === "create"}
           >
-            {isCreatingTree ? (
+            {working === "create" ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <PlusCircle className="mr-2 h-4 w-4" />
             )}
             New Tree
           </Button>
+
           <Label htmlFor="file-upload" className="cursor-pointer">
             <Button
               asChild
-              variant="outline"
-              disabled={isLoadingFile}
               size="sm"
+              variant="outline"
+              disabled={working === "load"}
             >
               <span>
-                {isLoadingFile ? (
+                {working === "load" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <FileUp className="mr-2 h-4 w-4" />
@@ -208,21 +150,23 @@ function App() {
             </Button>
           </Label>
           <Input
-            ref={fileInputRef}
             id="file-upload"
+            ref={fileInputRef}
             type="file"
+            accept=".prly,.prollytree,.prolly"
             className="hidden"
-            onChange={handleFileSelected}
-            accept=".prly,.prollytree,.prolly" // Keep or adjust accepted file types
-            disabled={isLoadingFile}
+            onChange={onFileChosen}
+            disabled={working === "load"}
           />
         </div>
       </header>
 
-      {/* ... Global feedback alert (commented out, can be restored if needed) ... */}
-
-      {trees.length === 0 && !isLoadingFile && !isCreatingTree ? (
-        // ... Placeholder for no trees (unchanged) ...
+      {/* BODY */}
+      {initializing ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-10 w-10 animate-spin" />
+        </div>
+      ) : trees.length === 0 ? (
         <div className="text-center py-12">
           <TreeDeciduous className="mx-auto h-16 w-16 text-muted-foreground/50" />
           <h2 className="mt-4 text-xl font-semibold text-muted-foreground">
@@ -235,7 +179,6 @@ function App() {
       ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <ScrollArea className="pb-2 -mx-1">
-            {" "}
             <TabsList className="inline-flex h-auto bg-muted p-1 rounded-lg">
               {trees.map((t) => (
                 <TabsTrigger
@@ -243,19 +186,16 @@ function App() {
                   value={t.id}
                   className="text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm px-3 py-1.5"
                 >
-                  {t.id.length > 18 ? `${t.id.substring(0, 18)}...` : t.id}
+                  {t.id.length > 18 ? `${t.id.slice(0, 18)}…` : t.id}
+                  {t.rootHash !== t.lastSavedRootHash && "*"}
                 </TabsTrigger>
               ))}
             </TabsList>
           </ScrollArea>
-          {trees.map((treeState) => (
-            <TabsContent
-              key={treeState.id}
-              value={treeState.id}
-              className="mt-4 rounded-lg "
-            >
-              {" "}
-              <TreeInterface treeState={treeState} />
+
+          {trees.map((t) => (
+            <TabsContent key={t.id} value={t.id} className="mt-4">
+              <TreeInterface treeState={t} />
             </TabsContent>
           ))}
         </Tabs>
@@ -263,4 +203,3 @@ function App() {
     </div>
   );
 }
-export default App;

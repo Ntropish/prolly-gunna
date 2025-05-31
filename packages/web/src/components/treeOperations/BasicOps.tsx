@@ -4,11 +4,11 @@ import { type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, CheckCircle, Search, Trash2 } from "lucide-react";
-import {
-  useInsertItemMutation,
-  useGetItemMutation,
-  useDeleteItemMutation,
-} from "@/hooks/useTreeMutations"; // Adjust path as needed
+
+import { toU8, u8ToString } from "@/lib/prollyUtils";
+import { toast } from "sonner";
+import { useProllyStore } from "@/useProllyStore";
+import { useMutation } from "@tanstack/react-query";
 
 interface BasicOpsProps {
   tree: WasmProllyTree;
@@ -24,42 +24,26 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   const [getKey, setGetKey] = useState("");
   const [deleteKeyInput, setDeleteKeyInput] = useState(""); // Renamed to avoid conflict
 
-  const insertMutation = useInsertItemMutation();
-  const getMutation = useGetItemMutation();
-  const deleteMutation = useDeleteItemMutation();
+  const insertMutation = useMutation({
+    mutationFn: async () => {
+      await tree.insert(toU8(insertKey), toU8(insertValue));
+      useProllyStore.getState().reloadHash(treeId);
+      toast.success(`Inserted "${insertKey}"`);
+    },
+  });
 
-  const handleInsert = () => {
-    insertMutation.mutate(
-      { treeId, tree, key: insertKey, value: insertValue },
-      {
-        onSuccess: () => {
-          setInsertKey("");
-          setInsertValue("");
-        },
-      }
-    );
-  };
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await tree.delete(toU8(deleteKeyInput));
+      useProllyStore.getState().reloadHash(treeId);
+      toast.success(`Deleted "${deleteKeyInput}"`);
+    },
+  });
 
-  const handleGet = () => {
-    getMutation.mutate(
-      { treeId, tree, key: getKey },
-      {
-        onSuccess: () => {
-          setGetKey("");
-        },
-      }
-    );
-  };
-
-  const handleDelete = () => {
-    deleteMutation.mutate(
-      { treeId, tree, key: deleteKeyInput },
-      {
-        onSuccess: () => {
-          setDeleteKeyInput("");
-        },
-      }
-    );
+  const handleGet = async () => {
+    const value = await tree.get(toU8(getKey));
+    const valueString = value ? u8ToString(value) : "null";
+    toast.success(`Value for "${getKey}": ${valueString}`);
   };
 
   return (
@@ -80,7 +64,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
             disabled={insertMutation.isPending}
           />
           <Button
-            onClick={handleInsert}
+            onClick={() => insertMutation.mutate()}
             disabled={insertMutation.isPending || !insertKey}
             className="w-full sm:w-auto"
           >
@@ -100,18 +84,13 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
             placeholder="Key"
             value={getKey}
             onChange={(e) => setGetKey(e.target.value)}
-            disabled={getMutation.isPending}
           />
           <Button
             onClick={handleGet}
-            disabled={getMutation.isPending || !getKey}
+            disabled={!getKey}
             className="w-full sm:w-auto"
           >
-            {getMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="mr-2 h-4 w-4" />
-            )}{" "}
+            <Search className="mr-2 h-4 w-4" />
             Get
           </Button>
         </div>
@@ -126,7 +105,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
             disabled={deleteMutation.isPending}
           />
           <Button
-            onClick={handleDelete}
+            onClick={() => deleteMutation.mutate()}
             variant="destructive"
             disabled={deleteMutation.isPending || !deleteKeyInput}
             className="w-full sm:w-auto"

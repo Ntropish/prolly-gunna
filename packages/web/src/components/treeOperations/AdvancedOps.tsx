@@ -17,16 +17,16 @@ import {
 interface AdvancedOpsProps {
   tree: WasmProllyTree;
   treeId: string;
-  diffResult: TreeState["diffResult"]; // Display data from Zustand store
-  gcCollectedCount: TreeState["gcCollectedCount"]; // Display data
+  // diffResult: TreeState["diffResult"]; // Display data from Zustand store
+  // gcCollectedCount: TreeState["gcCollectedCount"]; // Display data
   // triggerChunkExport prop is removed
 }
 
 export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
   tree,
   treeId,
-  diffResult,
-  gcCollectedCount,
+  // diffResult,
+  // gcCollectedCount,
 }) => {
   const [diffHash1, setDiffHash1] = useState("");
   const [diffHash2, setDiffHash2] = useState("");
@@ -84,7 +84,7 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
             Diff
           </Button>
         </div>
-        {diffResult.length > 0 && (
+        {/* {diffResult.length > 0 && (
           <ScrollArea className="h-40 max-h-60 w-full rounded-md border p-2 mt-1 bg-muted/30">
             <pre className="text-xs text-left whitespace-pre-wrap break-all">
               {diffResult
@@ -99,7 +99,7 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
                 .join("\n")}
             </pre>
           </ScrollArea>
-        )}
+        )} */}
       </div>
       <div className="space-y-2">
         <h4 className="font-medium text-sm">Garbage Collection</h4>
@@ -122,11 +122,11 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
           )}{" "}
           Trigger GC
         </Button>
-        {gcCollectedCount !== null && (
+        {/* {gcCollectedCount !== null && (
           <p className="text-sm mt-1 text-muted-foreground">
             Chunks collected in last GC run: {gcCollectedCount}
           </p>
-        )}
+        )} */}
       </div>
     </>
   );

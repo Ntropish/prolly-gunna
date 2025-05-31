@@ -1,49 +1,32 @@
-// src/useProllyStore.ts
-
 import { create } from "zustand";
-import { WasmProllyTree } from "prolly-wasm";
+import { WasmProllyTree, type TreeConfigOptions } from "prolly-wasm";
 import { u8ToHex } from "@/lib/prollyUtils";
-import type { TreeState, JsTreeConfigType } from "./useAppStore";
+import { uuidv7 } from "uuidv7";
+import { produce } from "immer";
 
-/**
- * Metadata for a tree file discovered in OPFS.
- */
-export interface ProllyFileMeta {
-  /** The plain file name (e.g. `my‑tree.prly`) */
-  name: string;
-  /** Absolute path from the OPFS root.  */
+export interface ProllyTree {
   path: string;
-  /** File byte length */
-  size: number;
-}
-
-/**
- * In‑memory representation of a prolly tree that knows what its on‑disk
- * root‑hash looked like when we loaded / last saved it.
- */
-export interface ProllyTreeEntry extends TreeState {
-  /** The root‑hash that was stored on disk the last time the tree was saved. */
+  id: string;
+  tree: WasmProllyTree;
   lastSavedRootHash: string | null;
-  /** `true` when `rootHash !== lastSavedRootHash`. */
-  isDirty: boolean;
-  /** Convenience handle back to the origin OPFS FileHandle. */
+  rootHash: string | null;
+  treeConfig: TreeConfigOptions | null;
+  lastError: string | null;
   fileHandle: FileSystemFileHandle | null;
 }
 
 interface ProllyStoreState {
-  /** All `.prly` files we have discovered. */
-  files: ProllyFileMeta[];
-  /** Active tree instances, keyed by their `id`. */
-  trees: Record<string, ProllyTreeEntry>;
+  trees: Record<string, ProllyTree>;
+
   /** Flag while the initial OPFS scan / load is running */
   initializing: boolean;
 
-  /** Kick‑off a fresh scan of OPFS and load every tree file we find. */
-  initialize: () => Promise<void>;
-  /** Manually refresh a tree’s root‑hash and update its dirty flag. */
-  refreshRootHash: (treeId: string) => Promise<void>;
-  /** Persist a tree back to its originating OPFS file. */
   saveTree: (treeId: string) => Promise<void>;
+  createNewTree: (
+    options?: Partial<Pick<ProllyTree, "treeConfig" | "path" | "tree">>
+  ) => Promise<string>;
+
+  reloadHash: (treeId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,141 +50,166 @@ async function* findPrlyFiles(
   }
 }
 
-async function fileHandleToMeta(
-  path: string,
+async function fileHandleToTree(
   name: string,
   handle: FileSystemFileHandle
-): Promise<ProllyFileMeta> {
+): Promise<ProllyTree> {
   const file = await handle.getFile();
-  return { name, path, size: file.size };
-}
+  const bytes = new Uint8Array(await file.arrayBuffer());
 
-async function loadTreeFromFileHandle(
-  name: string,
-  handle: FileSystemFileHandle
-): Promise<ProllyTreeEntry | null> {
-  try {
-    const file = await handle.getFile();
-    const bytes = new Uint8Array(await file.arrayBuffer());
+  // Wasm helper provided by your existing code
+  const tree = await WasmProllyTree.loadTreeFromFileBytes(bytes);
 
-    // Wasm helper provided by your existing code
-    const tree = await WasmProllyTree.loadTreeFromFileBytes(bytes);
+  const rootHashU8 = await tree.getRootHash();
+  const rootHashHex = rootHashU8 ? u8ToHex(rootHashU8) : null;
 
-    const rootHashU8 = await tree.getRootHash();
-    const treeConfig = (await tree.getTreeConfig()) as JsTreeConfigType;
+  const treeConfig = await tree.getTreeConfig();
 
-    const rootHashHex = rootHashU8 ? u8ToHex(rootHashU8) : null;
-
-    const treeId = name; // ↳ keep stable; adjust if you prefer a nicer id
-
-    return {
-      id: treeId,
-      tree,
-      rootHash: rootHashHex,
-      treeConfig,
-      lastError: null,
-      lastValue: null,
-      items: [],
-      chunks: [],
-      diffResult: [],
-      gcCollectedCount: null,
-      // — Dirty‑tracking fields —
-      lastSavedRootHash: rootHashHex,
-      isDirty: false,
-      fileHandle: handle,
-    };
-  } catch (err) {
-    console.error(`⚠️  Failed to load tree ${name}:`, err);
-    return null;
-  }
+  return {
+    path: name,
+    id: uuidv7(),
+    tree,
+    lastSavedRootHash: rootHashHex,
+    rootHash: rootHashHex,
+    treeConfig,
+    lastError: null,
+    fileHandle: handle,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Store implementation
 // ---------------------------------------------------------------------------
 
-export const useProllyStore = create<ProllyStoreState>()((set, get) => ({
-  files: [],
-  trees: {},
-  initializing: false,
-
-  initialize: async () => {
-    if (get().initializing) return; // no‑op re‑entry guard
-
-    set({ initializing: true });
+export const useProllyStore = create<ProllyStoreState>()((set, get) => {
+  async function initialize() {
     try {
       const opfsRoot = await navigator.storage.getDirectory();
-      const newFiles: ProllyFileMeta[] = [];
-      const newTrees: Record<string, ProllyTreeEntry> = {};
+      const newTrees: Record<string, ProllyTree> = {};
 
       for await (const { name, handle } of findPrlyFiles(opfsRoot)) {
-        const meta = await fileHandleToMeta(name, name, handle);
-        newFiles.push(meta);
-
-        const treeEntry = await loadTreeFromFileHandle(name, handle);
-        if (treeEntry) {
-          newTrees[treeEntry.id] = treeEntry;
-        }
+        const tree = await fileHandleToTree(name, handle);
+        newTrees[tree.id] = tree;
       }
 
-      set({ files: newFiles, trees: newTrees });
+      set({ trees: newTrees });
     } catch (err) {
       console.error("⚠️  OPFS scan failed:", err);
     } finally {
       set({ initializing: false });
     }
-  },
+  }
 
-  refreshRootHash: async (treeId: string) => {
-    const treeEntry = get().trees[treeId];
-    if (!treeEntry) return;
+  initialize();
 
-    try {
-      const rootHashU8 = await treeEntry.tree.getRootHash();
-      const newRoot = rootHashU8 ? u8ToHex(rootHashU8) : null;
-      const isDirty = newRoot !== treeEntry.lastSavedRootHash;
-      set((s) => ({
-        trees: {
-          ...s.trees,
-          [treeId]: { ...treeEntry, rootHash: newRoot, isDirty },
-        },
-      }));
-    } catch (err) {
-      console.error(`⚠️  Failed to refresh root hash for ${treeId}:`, err);
-    }
-  },
+  return {
+    trees: {},
+    initializing: true,
 
-  saveTree: async (treeId: string) => {
-    const treeEntry = get().trees[treeId];
+    refreshRootHash: async (treeId: string) => {
+      const treeEntry = get().trees[treeId];
+      if (!treeEntry) return;
 
-    console.log("treeEntry", treeEntry);
-    if (!treeEntry || !treeEntry.fileHandle) return;
-    console.log("treeEntry.fileHandle", treeEntry.fileHandle);
-
-    try {
-      // Delegate to your existing save procedure – assuming `tree.saveToBytes()`
-      const bytes = await treeEntry.tree.saveTreeToFileBytes();
-      const writable = await treeEntry.fileHandle.createWritable();
-      await writable.write(bytes);
-      await writable.close();
-
-      // Update housekeeping
-      await get().refreshRootHash(treeId);
-      set((s) => ({
-        trees: {
-          ...s.trees,
-          [treeId]: {
-            ...s.trees[treeId],
-            lastSavedRootHash: s.trees[treeId].rootHash,
-            isDirty: false,
+      try {
+        const rootHashU8 = await treeEntry.tree.getRootHash();
+        const newRoot = rootHashU8 ? u8ToHex(rootHashU8) : null;
+        const isDirty = newRoot !== treeEntry.lastSavedRootHash;
+        set((s) => ({
+          trees: {
+            ...s.trees,
+            [treeId]: { ...treeEntry, rootHash: newRoot, isDirty },
           },
-        },
+        }));
+      } catch (err) {
+        console.error(`⚠️  Failed to refresh root hash for ${treeId}:`, err);
+      }
+    },
+
+    saveTree: async (treeId: string) => {
+      const state = get();
+      const treeEntry = state.trees[treeId];
+      if (!treeEntry) return; // Unknown id.
+
+      try {
+        // 1️⃣ Ensure we have a fileHandle – create one if missing.
+        let fileHandle = treeEntry.fileHandle;
+        if (!fileHandle) {
+          const opfsRoot = await navigator.storage.getDirectory();
+          const filename = treeId.toLowerCase().endsWith(".prly")
+            ? treeId
+            : `${treeId}.prly`;
+
+          fileHandle = await opfsRoot.getFileHandle(filename, { create: true });
+
+          // Add/Update the files list with fresh metadata.
+          // Patch the tree entry with the new handle.
+          set((s) => ({
+            trees: produce(s.trees, (draft) => {
+              draft[treeId].fileHandle = fileHandle;
+            }),
+          }));
+        }
+
+        // 2️⃣ Serialize and write bytes.
+        const bytes = await treeEntry.tree.saveTreeToFileBytes();
+        const writable = await fileHandle.createWritable();
+        await writable.write(bytes);
+        await writable.close();
+
+        set((s) => ({
+          trees: produce(s.trees, (draft) => {
+            draft[treeId].lastSavedRootHash = draft[treeId].rootHash;
+          }),
+        }));
+      } catch (err) {
+        console.error(`⚠️  Failed to save tree ${treeId}:`, err);
+      }
+    },
+
+    createNewTree: async (
+      options?: Partial<Pick<ProllyTree, "treeConfig" | "path" | "tree">>
+    ) => {
+      const tree = options?.tree ?? new WasmProllyTree();
+      const cfg = options?.treeConfig ?? (await tree.getTreeConfig());
+      const root = await tree.getRootHash();
+      const id = uuidv7();
+
+      set((s) => ({
+        trees: produce(s.trees, (draft) => {
+          draft[id] = {
+            id,
+            tree,
+            treeConfig: cfg,
+            rootHash: root ? u8ToHex(root) : null,
+            lastSavedRootHash: null,
+            lastError: null,
+            fileHandle: null,
+            path: options?.path ?? id,
+          };
+        }),
       }));
-    } catch (err) {
-      console.error(`⚠️  Failed to save tree ${treeId}:`, err);
-    }
-  },
-}));
+
+      return id;
+    },
+
+    reloadHash: async (treeId: string) => {
+      const treeEntry = get().trees[treeId];
+      if (!treeEntry) return;
+
+      try {
+        const rootHashU8 = await treeEntry.tree.getRootHash();
+        const newRoot = rootHashU8 ? u8ToHex(rootHashU8) : null;
+        set((s) => ({
+          trees: produce(s.trees, (draft) => {
+            draft[treeId].rootHash = newRoot;
+          }),
+        }));
+      } catch (err) {
+        console.error(`⚠️  Failed to reload hash for ${treeId}:`, err);
+      }
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Usage quick‑start
