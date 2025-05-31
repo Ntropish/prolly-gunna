@@ -20,13 +20,14 @@ pub mod gc;
 pub mod wasm_bridge;
 
 use crate::store::file_io_v2::{write_prly_tree_v2, read_prly_tree_v2};
-use crate::store::{ChunkStore, InMemoryStore, FileStore};
+use crate::store::ChunkStore;
 
 // Corrected use statements
 use crate::tree::types as core_tree_types; // For core ScanArgs and ScanPage
 use serde_wasm_bindgen;                    // For from_value / to_value
 
 use crate::tree::ProllyTree;
+use crate::store::InMemoryStore;
 use crate::common::{TreeConfig, Key, Value, Hash};
 use crate::error::ProllyError;
 use crate::diff::DiffEntry as CoreDiffEntry; // Alias to avoid conflict if DiffEntry is also defined in TS section
@@ -40,14 +41,6 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 // Import the TypeScript definitions from an external file.
 #[wasm_bindgen(typescript_custom_section)]
 const TS_APPEND_CONTENT: &'static str = include_str!("prolly_tree_types.ts");
-
-// Define a struct for deserializing constructor options
-#[derive(Deserialize, Default, Debug)]
-#[serde(rename_all = "camelCase")]
-struct WasmProllyTreeInitOptionsJs {
-    tree: Option<JsValue>, // TreeConfigOptions (will be JsValue then parsed)
-    store_provider: Option<web_sys::FileSystemWritableFileStream>, // Directly use the web_sys type
-}
 
 #[wasm_bindgen]
 extern "C" {
