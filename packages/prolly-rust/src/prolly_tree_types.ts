@@ -88,6 +88,12 @@ export type GetTreeConfigFnReturn = TreeConfigOptions;
 export type ScanItemsFnReturn = IWasmScanPage;
 /** The `countAllItems` method resolves to the total count of items in the tree. */
 export type CountAllItemsFnReturn = number;
+/** The `hierarchyScan` method resolves to a page of hierarchy scan results. */
+export type HierarchyScanFnReturn = Promise<HierarchyScanPageResult>;
+/** The `saveTreeToFileBytes` method resolves to a Uint8Array containing the tree's data. */
+export type ExportTreeToFileFnReturn = Promise<Uint8Array>;
+/** The `loadTreeFromFileBytes` method resolves to a WasmProllyTree instance. */
+export type LoadTreeFromFileBytesFnReturn = Promise<WasmProllyTree>;
 
 /**
  * The resolved value of the `WasmProllyTreeCursor.next()` method.

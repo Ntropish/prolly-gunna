@@ -93,8 +93,8 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "Promise<ExportTreeToFileFnReturn>")]
     pub type PromiseExportTreeToFileFnReturn;
-    #[wasm_bindgen(typescript_type = "Promise<LoadTreeFromFileFnReturn>")]
-    pub type PromiseLoadTreeFromFileFnReturn;
+    #[wasm_bindgen(typescript_type = "Promise<LoadTreeFromFileBytesFnReturn>")]
+    pub type PromiseLoadTreeFromFileBytesFnReturn;
 }
 // --- End TypeScript Custom Section ---
 
@@ -537,7 +537,7 @@ impl WasmProllyTree {
     }
 
     #[wasm_bindgen(js_name = loadTreeFromFileBytes)]
-    pub fn load_tree_from_file_bytes(file_bytes_js: &JsUint8Array) -> PromiseLoadTreeFromFileFnReturn {
+    pub fn load_tree_from_file_bytes(file_bytes_js: &JsUint8Array) -> PromiseLoadTreeFromFileBytesFnReturn {
         let file_bytes: Vec<u8> = file_bytes_js.to_vec();
 
         let future = async move {
