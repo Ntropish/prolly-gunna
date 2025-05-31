@@ -171,46 +171,8 @@ interface WasmDiffEntry {
   rightValue?: Uint8Array;
 }
 export function useDiffTreesMutation() {
-  const { updateTreeState } = useAppStore();
-  return useMutation({
-    mutationFn: async (args: DiffTreesArgs) => {
-      const h1U8 = args.hash1Hex.trim() ? hexToU8(args.hash1Hex.trim()) : null;
-      const h2U8 = args.hash2Hex.trim() ? hexToU8(args.hash2Hex.trim()) : null;
-
-      if (args.hash1Hex.trim() && !h1U8)
-        throw new Error(`Invalid hex string for Root Hash 1: ${args.hash1Hex}`);
-      if (args.hash2Hex.trim() && !h2U8)
-        throw new Error(`Invalid hex string for Root Hash 2: ${args.hash2Hex}`);
-
-      // The Wasm diffRoots function returns a JsArray of JsObjects.
-      const diffEntriesJs = (await args.tree.diffRoots(h1U8, h2U8)) as any[]; // Cast to any[] for iteration
-
-      const formattedDiffs: TreeState["diffResult"] = diffEntriesJs.map(
-        (entry: WasmDiffEntry) => ({
-          key: u8ToString(entry.key),
-          left: entry.leftValue ? u8ToString(entry.leftValue) : undefined,
-          right: entry.rightValue ? u8ToString(entry.rightValue) : undefined,
-        })
-      );
-      return { treeId: args.treeId, diffResult: formattedDiffs };
-    },
-    onSuccess: (data) => {
-      updateTreeState(data.treeId, {
-        diffResult: data.diffResult,
-        lastError: null,
-      });
-      toast.success(
-        `Diff computed with ${data.diffResult.length} differences.`
-      );
-    },
-    onError: (error: Error, variables) => {
-      updateTreeState(variables.treeId, {
-        diffResult: [],
-        lastError: `Diff failed: ${error.message}`,
-      });
-      toast.error(`Diff failed: ${error.message}`);
-    },
-  });
+  // const { updateTreeState } = useAppStore();
+  return;
 }
 
 // --- Garbage Collect Mutation ---
