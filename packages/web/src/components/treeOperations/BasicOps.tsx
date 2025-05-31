@@ -27,7 +27,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   const insertMutation = useMutation({
     mutationFn: async () => {
       await tree.insert(toU8(insertKey), toU8(insertValue));
-      useProllyStore.getState().reloadHash(treeId);
+      useProllyStore.getState().treeUpdated(treeId);
       toast.success(`Inserted "${insertKey}"`);
     },
   });
@@ -35,7 +35,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   const deleteMutation = useMutation({
     mutationFn: async () => {
       await tree.delete(toU8(deleteKeyInput));
-      useProllyStore.getState().reloadHash(treeId);
+      useProllyStore.getState().treeUpdated(treeId);
       toast.success(`Deleted "${deleteKeyInput}"`);
     },
   });

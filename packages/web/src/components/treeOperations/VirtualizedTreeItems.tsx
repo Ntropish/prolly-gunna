@@ -4,11 +4,12 @@ import {
   // QueryClientProvider, // Setup in App.tsx
   useQuery,
   useInfiniteQuery,
-  type InfiniteData, // Import InfiniteData
+  type InfiniteData,
+  useMutation, // Import InfiniteData
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type WasmProllyTree } from "prolly-wasm";
-import { u8ToString, toU8 } from "@/lib/prollyUtils";
+import { u8ToString, toU8, triggerBrowserDownload } from "@/lib/prollyUtils";
 import {
   Loader2,
   XCircle,
@@ -21,8 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useDownloadScanAsJsonlMutation } from "@/hooks/useTreeMutations";
-import type { ScanArgsWasm } from "@/lib/types";
+import type { ScanArgsWasm, ScanPageWasm } from "@/lib/types";
 import { Download } from "lucide-react";
 
 import { useDebounce } from "use-debounce";
@@ -249,15 +249,82 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
     allDisplayItems.length,
   ]);
 
-  const downloadScanMutation = useDownloadScanAsJsonlMutation();
+  const downloadScanMutation = useMutation({
+    mutationFn: async (scanArgs: Omit<ScanArgsWasm, "offset" | "limit">) => {
+      const allItems: { key: string; value: string }[] = [];
+      let currentOffset = 0;
+      const DOWNLOAD_BATCH_SIZE = 200;
+
+      while (true) {
+        // Construct the argument object for Wasm based on ScanArgsWasm
+        const currentScanArgsForWasm: ScanArgsWasm = {
+          ...scanArgs,
+          offset: currentOffset,
+          limit: DOWNLOAD_BATCH_SIZE,
+        };
+
+        // Call Wasm, which takes `any` and returns `Promise<any>`
+        // We cast the result to our expected ScanPageWasm structure.
+        if (!tree) throw new Error("Tree not available for download.");
+        const page = (await tree.scanItems(
+          currentScanArgsForWasm
+        )) as ScanPageWasm;
+
+        if (page.items && page.items.length > 0) {
+          page.items.forEach((pair: [Uint8Array, Uint8Array]) => {
+            allItems.push({
+              key: u8ToString(pair[0]),
+              value: u8ToString(pair[1]),
+            });
+          });
+        }
+
+        if (
+          !page.hasNextPage ||
+          (page.items && page.items.length < DOWNLOAD_BATCH_SIZE)
+        ) {
+          break;
+        }
+        currentOffset += page.items?.length || 0;
+      }
+
+      if (allItems.length === 0) {
+        toast.info("No items found matching current scan filters to download.");
+        return null;
+      }
+
+      const jsonlString = allItems
+        .map((item) => JSON.stringify({ key: item.key, value: item.value }))
+        .join("\n");
+
+      const filename = `prolly_scan_${treeId}_${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.jsonl`;
+      return { data: new TextEncoder().encode(jsonlString), filename };
+    },
+    onSuccess: (result) => {
+      if (result) {
+        triggerBrowserDownload(
+          result.data,
+          result.filename,
+          "application/jsonl"
+        );
+        toast.success(`Downloaded scan results for tree "${treeId}" as JSONL.`);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(
+        `Failed to download scan for tree "${treeId}": ${error.message}`
+      );
+    },
+  });
 
   const handleDownloadScan = () => {
     if (!tree) {
       toast.error("Tree instance not available for download.");
       return;
     }
-    // appliedScanArgs is already Omit<ScanArgsWasm, "offset" | "limit">
-    downloadScanMutation.mutate({ tree, treeId, scanArgs: appliedScanArgs });
+    downloadScanMutation.mutate(appliedScanArgs);
   };
 
   const handleClearFilters = () => {

@@ -4,20 +4,70 @@ import { type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Layers } from "lucide-react";
-import { useApplyJsonlBatchMutation } from "@/hooks/useTreeMutations";
 import { toast } from "sonner";
+import { toU8 } from "@/lib/prollyUtils";
+import { u8ToHex } from "@/lib/prollyUtils";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useProllyStore } from "@/useProllyStore";
 
 interface JsonlBatchAreaProps {
   tree: WasmProllyTree;
   treeId: string;
 }
 
+interface JsonlItem {
+  key: string;
+  value: string;
+}
+
 export const JsonlBatchArea: React.FC<JsonlBatchAreaProps> = ({
   tree,
   treeId,
 }) => {
+  const queryClient = useQueryClient();
   const [jsonlText, setJsonlText] = useState("");
-  const applyJsonlMutation = useApplyJsonlBatchMutation();
+  const applyJsonlMutation = useMutation({
+    mutationFn: async (args: { items: JsonlItem[] }) => {
+      if (args.items.length === 0) {
+        return {
+          count: 0,
+          noOp: true,
+        };
+      }
+
+      const batchForWasm: [Uint8Array, Uint8Array][] = args.items.map(
+        (item) => [toU8(item.key), toU8(item.value)]
+      );
+
+      await tree.insertBatch(batchForWasm); // This is the Wasm function
+      const newRootHashU8 = await tree.getRootHash();
+      return {
+        treeId: treeId,
+        newRootHash: u8ToHex(newRootHashU8),
+        count: args.items.length,
+        noOp: false,
+      };
+    },
+    onSuccess: (data) => {
+      useProllyStore.getState().treeUpdated(treeId);
+
+      if (data.noOp) {
+        toast.info("No items provided in JSONL batch.");
+      } else {
+        toast.success(
+          `Successfully applied ${data.count} entries from JSONL batch.`
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["items", data.treeId] });
+      setJsonlText("");
+    },
+    onError: (error: Error) => {
+      useProllyStore
+        .getState()
+        .treeError(treeId, `JSONL batch apply failed: ${error.message}`);
+      toast.error(`JSONL batch apply failed: ${error.message}`);
+    },
+  });
 
   const handleApplyJsonl = () => {
     if (!jsonlText.trim()) {
@@ -61,14 +111,7 @@ export const JsonlBatchArea: React.FC<JsonlBatchAreaProps> = ({
     }
 
     if (parsedItems.length > 0) {
-      applyJsonlMutation.mutate(
-        { treeId, tree, items: parsedItems },
-        {
-          onSuccess: () => {
-            setJsonlText("");
-          },
-        }
-      );
+      applyJsonlMutation.mutate({ items: parsedItems });
     } else if (skippedLines === 0) {
       toast.info("No valid entries found in text area to apply.");
     }

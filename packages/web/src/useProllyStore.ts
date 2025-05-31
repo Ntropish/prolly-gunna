@@ -26,7 +26,8 @@ interface ProllyStoreState {
     options?: Partial<Pick<ProllyTree, "treeConfig" | "path" | "tree">>
   ) => Promise<string>;
 
-  reloadHash: (treeId: string) => Promise<void>;
+  treeUpdated: (treeId: string) => Promise<void>;
+  treeError: (treeId: string, error: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +193,7 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
       return id;
     },
 
-    reloadHash: async (treeId: string) => {
+    treeUpdated: async (treeId: string) => {
       const treeEntry = get().trees[treeId];
       if (!treeEntry) return;
 
@@ -202,25 +203,20 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
         set((s) => ({
           trees: produce(s.trees, (draft) => {
             draft[treeId].rootHash = newRoot;
+            draft[treeId].lastError = null;
           }),
         }));
       } catch (err) {
         console.error(`⚠️  Failed to reload hash for ${treeId}:`, err);
       }
     },
+
+    treeError: (treeId: string, error: string) => {
+      set((s) => ({
+        trees: produce(s.trees, (draft) => {
+          draft[treeId].lastError = error;
+        }),
+      }));
+    },
   };
 });
-
-// ---------------------------------------------------------------------------
-// Usage quick‑start
-// ---------------------------------------------------------------------------
-// import { useProllyStore } from "@/useProllyStore";
-//
-// // kick‑off once in your root component
-// useEffect(() => {
-//   useProllyStore.getState().initialize();
-// }, []);
-//
-// const trees = useProllyStore((s) => Object.values(s.trees));
-// const saving = useProllyStore((s) => s.saveTree);
-// ---------------------------------------------------------------------------
