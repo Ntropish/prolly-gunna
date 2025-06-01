@@ -12,7 +12,7 @@ import {
 } from "./ui/card";
 import { Button } from "./ui/button";
 // Input, Label, Textarea removed if not directly used here
-import { Loader2, FileDown, RefreshCw, Save } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
+import { Loader2, FileDown, RefreshCw, Save, Trash } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
 
 import { OperationSection } from "./treeOperations/OperationSection";
 import { BasicOpsComponent } from "./treeOperations/BasicOps";
@@ -27,6 +27,7 @@ import {
   useSaveTreeToFileMutation,
 } from "@/hooks/useTreeMutations";
 import { useProllyStore, type ProllyTree } from "@/useProllyStore";
+import { RenameDialog } from "./treeOperations/RenameDialog";
 
 interface TreeInterfaceProps {
   treeState: ProllyTree;
@@ -51,6 +52,10 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     useProllyStore.getState().saveTree(treeState.id);
   };
 
+  const handleDelete = () => {
+    useProllyStore.getState().deleteTree(treeState.id);
+  };
+
   const commonProps = {
     tree: treeState.tree,
     treeId: treeState.id,
@@ -59,14 +64,18 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
   return (
     <Card className="w-full shadow-lg border">
       <CardHeader>
-        <CardTitle className="text-xl tracking-tight">
+        <CardTitle className="text-xl tracking-tight flex items-center gap-2">
           Tree Instance:{" "}
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
             {treeState.id}
           </span>
-          <span className="ml-2">
+          {/* <RenameDialog treeId={treeState.id} currentName={treeState.id} /> */}
+          <span className="ml-2 flex gap-2 ml-auto">
             <Button size="icon" onClick={handleSave}>
               <Save className="h-4 w-4" />
+            </Button>
+            <Button size="icon" onClick={handleDelete} variant="destructive">
+              <Trash className="h-4 w-4" />
             </Button>
           </span>
         </CardTitle>

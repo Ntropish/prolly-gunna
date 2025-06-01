@@ -25,6 +25,8 @@ interface ProllyStoreState {
   createNewTree: (
     options?: Partial<Pick<ProllyTree, "treeConfig" | "path" | "tree">>
   ) => Promise<string>;
+  deleteTree: (treeId: string) => Promise<void>;
+  renameTree: (treeId: string, newName: string) => Promise<void>;
 
   treeUpdated: (treeId: string) => Promise<void>;
   treeError: (treeId: string, error: string) => Promise<void>;
@@ -198,6 +200,27 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
       await get().saveTree(id);
 
       return id;
+    },
+
+    deleteTree: async (treeId: string) => {
+      const treeEntry = get().trees[treeId];
+      if (!treeEntry) return;
+
+      if (treeEntry.fileHandle) {
+        // call removeEntry on the parent directory
+        const opfsRoot = await navigator.storage.getDirectory();
+        await opfsRoot.removeEntry(treeEntry.fileHandle.name);
+      }
+
+      set((s) => ({
+        trees: produce(s.trees, (draft) => {
+          delete draft[treeId];
+        }),
+      }));
+    },
+
+    renameTree: async (treeId: string, newName: string) => {
+      throw new Error("Not implemented");
     },
 
     treeUpdated: async (treeId: string) => {
