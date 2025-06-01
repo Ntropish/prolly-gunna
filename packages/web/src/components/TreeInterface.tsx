@@ -34,6 +34,7 @@ import {
 } from "@/lib/prollyUtils";
 import { toast } from "sonner";
 import { useMutation } from "@tanstack/react-query";
+import { ProllyFilePanel } from "./treeOperations/FilePanel";
 // import { RenameDialog } from "./treeOperations/RenameDialog"; // Assuming RenameDialog is still used as is
 
 interface TreeInterfaceProps {
@@ -43,47 +44,8 @@ interface TreeInterfaceProps {
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
   const saveTreeMutation = useSaveTreeToFileMutation();
 
-  const downloadMutation = useMutation({
-    mutationFn: async ({ description }: { description?: string }) => {
-      if (!treeState.tree) {
-        throw new Error(`No tree provided for saving.`);
-      }
-
-      const fileBytesU8 = await tree.saveTreeToFileBytes(
-        description || undefined
-      );
-
-      if (!fileBytesU8 || fileBytesU8.length === 0) {
-        throw new Error("Wasm module returned empty file data.");
-      }
-
-      return {
-        buffer: fileBytesU8.buffer,
-        filename: generateTreeFilename(treeState.id),
-      };
-    },
-    onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
-      triggerBrowserDownload(data.buffer, data.filename);
-      toast.success("Tree saved to file successfully.");
-    },
-    onError: (error: Error) => {
-      console.error("Save tree to file failed:", error);
-      toast.error(
-        `Save tree failed: ${error.message || "Wasm error during save"}`
-      );
-    },
-  });
-
-  const handleDownload = () => {
-    downloadMutation.mutate({ description: "BasicOps Download" });
-  };
-
   const handleSave = () => {
     useProllyStore.getState().saveTree(treeState.id);
-  };
-
-  const handleDelete = () => {
-    useProllyStore.getState().deleteTree(treeState.id);
   };
 
   const commonProps = {
@@ -110,56 +72,15 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             )}
           </span>
         </CardTitle>
-        <CardDescription className="pt-1">
-          <div className="flex flex-col gap-2 flex-[1_1_0]">
-            Current Root Hash:{" "}
-            <span className="font-mono text-xs max-w-full overflow-hidden">
-              {treeState.rootHash || "N/A (Empty Tree)"}
-            </span>
-            {treeState.treeConfig && (
-              <span className="block text-xs text-muted-foreground mt-1">
-                (Config: Target Fanout {treeState.treeConfig.targetFanout}, Min
-                Fanout {treeState.treeConfig.minFanout}, Max Inline Value{" "}
-                {treeState.treeConfig.maxInlineValueSize}B, CDC Min{" "}
-                {treeState.treeConfig.cdcMinSize}B / Avg{" "}
-                {treeState.treeConfig.cdcAvgSize}B / Max{" "}
-                {treeState.treeConfig.cdcMaxSize}B)
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-row gap-2 ml-auto">
-            <Button
-              onClick={handleDownload}
-              disabled={downloadMutation.isPending}
-              className="sm:w-auto"
-            >
-              {downloadMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileDown className="mr-2 h-4 w-4" />
-              )}
-              Download Tree
-            </Button>
-
-            <Button
-              onClick={handleDelete}
-              variant="destructive"
-              className="sm:w-auto"
-            >
-              <Trash className="mr-2 h-4 w-4" />
-              Delete Tree
-            </Button>
-          </div>
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
         <Tabs defaultValue={defaultTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 h-16 ">
+          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-3 h-24 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="basic">Basic Ops</TabsTrigger>
             <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
-            <TabsTrigger value="batchInsert">Batch Insert</TabsTrigger>
+            <TabsTrigger value="batchInsert">JSONL</TabsTrigger>
+            <TabsTrigger value="file">File</TabsTrigger>
             <TabsTrigger value="diff">Diff</TabsTrigger>
             <TabsTrigger value="gc">GC</TabsTrigger>
           </TabsList>
@@ -194,6 +115,15 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             ) : (
               <p>Tree instance not available.</p>
             )}
+          </TabsContent>
+
+          <TabsContent value="file" className="border-t pt-4">
+            <ProllyFilePanel
+              tree={treeState.tree}
+              treeId={treeState.id}
+              treeConfig={treeState.treeConfig}
+              rootHash={treeState.rootHash}
+            />
           </TabsContent>
 
           <TabsContent value="batchInsert" className="border-t pt-4">

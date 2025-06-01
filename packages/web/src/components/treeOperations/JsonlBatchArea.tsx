@@ -76,7 +76,6 @@ export const JsonlBatchArea: React.FC<JsonlBatchAreaProps> = ({
 
   return (
     <div className="space-y-2">
-      <h4 className="font-medium text-sm">Apply JSONL from Text</h4>
       <Textarea
         placeholder='{"key": "myKey1", "value": "myValue1"}\n{"key": "myKey2", "value": "myValue2"}'
         value={jsonlText}
