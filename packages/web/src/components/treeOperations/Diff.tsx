@@ -5,14 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
-import { useGarbageCollectMutation } from "@/hooks/useTreeMutations";
 import { useMutation } from "@tanstack/react-query";
 import { hexToU8, u8ToString } from "@/lib/prollyUtils";
 import { toast } from "sonner";
 import { useProllyStore } from "@/useProllyStore";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
 
-interface AdvancedOpsProps {
+interface DiffProps {
   tree: WasmProllyTree;
   treeId: string;
 }
@@ -21,13 +20,9 @@ interface StringDiffEntry {
   left: string | undefined;
   right: string | undefined;
 }
-export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
-  tree,
-  treeId,
-}) => {
+export const DiffComponent: React.FC<DiffProps> = ({ tree, treeId }) => {
   const [diffHash1, setDiffHash1] = useState("");
   const [diffHash2, setDiffHash2] = useState("");
-  const [gcLiveHashes, setGcLiveHashes] = useState("");
 
   const diffMutation = useMutation({
     mutationFn: async ({ left, right }: { left: string; right: string }) => {
@@ -65,20 +60,10 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
     },
   });
 
-  const garbageCollectMutation = useGarbageCollectMutation();
-
   const handleDiff = () => {
     diffMutation.mutate({
       left: diffHash1,
       right: diffHash2,
-    });
-  };
-
-  const handleGc = () => {
-    garbageCollectMutation.mutate({
-      treeId,
-      tree,
-      gcLiveHashesHex: gcLiveHashes,
     });
   };
 
@@ -132,33 +117,6 @@ export const AdvancedOpsComponent: React.FC<AdvancedOpsProps> = ({
             </pre>
           </ScrollArea>
         )}
-      </div>
-      <div className="space-y-2">
-        <h4 className="font-medium text-sm">Garbage Collection</h4>
-        <Textarea
-          placeholder="Live Root Hashes (comma-separated hex strings). Current tree's root is always included."
-          value={gcLiveHashes}
-          onChange={(e) => setGcLiveHashes(e.target.value)}
-          rows={2}
-          disabled={garbageCollectMutation.isPending}
-        />
-        <Button
-          onClick={handleGc}
-          disabled={garbageCollectMutation.isPending}
-          className="w-full sm:w-auto"
-        >
-          {garbageCollectMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Eraser className="mr-2 h-4 w-4" />
-          )}{" "}
-          Trigger GC
-        </Button>
-        {/* {gcCollectedCount !== null && (
-          <p className="text-sm mt-1 text-muted-foreground">
-            Chunks collected in last GC run: {gcCollectedCount}
-          </p>
-        )} */}
       </div>
     </>
   );

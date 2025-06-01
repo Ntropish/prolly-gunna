@@ -1,7 +1,6 @@
 // src/components/TreeInterface.tsx
-import React from "react"; // Removed useState, useRef, ChangeEvent from here
+import React from "react";
 import { type WasmProllyTree } from "prolly-wasm";
-// import { type TreeState } from "@/useAppStore"; // Removed useAppStore if not directly used
 import {
   Card,
   CardContent,
@@ -11,13 +10,14 @@ import {
   CardTitle,
 } from "./ui/card";
 import { Button } from "./ui/button";
-// Input, Label, Textarea removed if not directly used here
-import { Loader2, FileDown, RefreshCw, Save, Trash } from "lucide-react"; // Removed Layers, UploadCloud, FileUp
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"; // Added Tabs imports
+import { Loader2, FileDown, RefreshCw, Save, Trash } from "lucide-react";
 
-import { OperationSection } from "./treeOperations/OperationSection";
+// Removed OperationSection import as it's being replaced by Tabs
 import { BasicOpsComponent } from "./treeOperations/BasicOps";
-import { DataExplorerComponent } from "./treeOperations/DataExplorer.old";
-import { AdvancedOpsComponent } from "./treeOperations/AdvancedOps";
+// DataExplorerComponent was marked as .old, assuming it's not primary for this refactor
+// import { DataExplorerComponent } from "./treeOperations/DataExplorer.old";
+import { AdvancedOpsComponent, DiffComponent } from "./treeOperations/Diff";
 import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
 import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
 import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea";
@@ -27,7 +27,8 @@ import {
   useSaveTreeToFileMutation,
 } from "@/hooks/useTreeMutations";
 import { useProllyStore, type ProllyTree } from "@/useProllyStore";
-import { RenameDialog } from "./treeOperations/RenameDialog";
+import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
+// import { RenameDialog } from "./treeOperations/RenameDialog"; // Assuming RenameDialog is still used as is
 
 interface TreeInterfaceProps {
   treeState: ProllyTree;
@@ -60,6 +61,9 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     tree: treeState.tree,
     treeId: treeState.id,
   };
+
+  // Define default active tab, e.g., "basic"
+  const defaultTab = "scan";
 
   return (
     <Card className="w-full shadow-lg border">
@@ -96,51 +100,69 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
-        <OperationSection title="Basic Operations" defaultOpen={true}>
-          <BasicOpsComponent tree={treeState.tree} treeId={treeState.id} />
-        </OperationSection>
+        <Tabs defaultValue={defaultTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 md:h-14 ">
+            <TabsTrigger value="scan">Scan Items</TabsTrigger>
+            <TabsTrigger value="basic">Basic Ops</TabsTrigger>
+            <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
+            <TabsTrigger value="batchInsert">Batch Insert (JSONL)</TabsTrigger>
+            <TabsTrigger value="diff">Diff</TabsTrigger>
+            <TabsTrigger value="gc">GC</TabsTrigger>
+          </TabsList>
 
-        <OperationSection title="Scan" defaultOpen={true}>
-          {treeState.tree ? (
-            <VirtualizedTreeItems
-              currentRoot={treeState.rootHash}
-              tree={treeState.tree as WasmProllyTree}
-              treeId={treeState.id}
-              height="400px"
-              itemHeight={65}
-            />
-          ) : (
-            <p>Tree instance not available.</p>
-          )}
-        </OperationSection>
+          <TabsContent value="basic" className="border-t pt-4">
+            <BasicOpsComponent tree={treeState.tree} treeId={treeState.id} />
+          </TabsContent>
 
-        <OperationSection title="Tree Scan" defaultOpen={true}>
-          {treeState.tree ? (
-            <VirtualizedHierarchyScan
-              currentRoot={treeState.rootHash}
-              tree={treeState.tree as WasmProllyTree}
-              treeId={treeState.id}
-              height="400px"
-              itemHeight={65}
-            />
-          ) : (
-            <p>Tree instance not available.</p>
-          )}
-        </OperationSection>
+          <TabsContent value="scan" className="border-t pt-4">
+            {treeState.tree ? (
+              <VirtualizedTreeItems
+                currentRoot={treeState.rootHash}
+                tree={treeState.tree as WasmProllyTree}
+                treeId={treeState.id}
+                height="400px"
+                itemHeight={65}
+              />
+            ) : (
+              <p>Tree instance not available.</p>
+            )}
+          </TabsContent>
 
-        <OperationSection title="Batch Insert (JSONL)" defaultOpen={false}>
-          <div className="space-y-4">
-            <JsonlFileLoaderComponent
+          <TabsContent value="hierarchyScan" className="border-t pt-4">
+            {treeState.tree ? (
+              <VirtualizedHierarchyScan
+                currentRoot={treeState.rootHash}
+                tree={treeState.tree as WasmProllyTree}
+                treeId={treeState.id}
+                height="400px"
+                itemHeight={65} // Adjust as needed, hierarchy items might be taller
+              />
+            ) : (
+              <p>Tree instance not available.</p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="batchInsert" className="border-t pt-4">
+            <div className="space-y-4">
+              <JsonlFileLoaderComponent
+                tree={treeState.tree}
+                treeId={treeState.id}
+              />
+              <JsonlBatchArea tree={treeState.tree} treeId={treeState.id} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="diff" className="border-t pt-4">
+            <DiffComponent {...commonProps} />
+          </TabsContent>
+
+          <TabsContent value="gc" className="border-t pt-4">
+            <GarbageCollectionComponent
               tree={treeState.tree}
               treeId={treeState.id}
             />
-            <JsonlBatchArea tree={treeState.tree} treeId={treeState.id} />
-          </div>
-        </OperationSection>
-
-        <OperationSection title="Advanced Operations">
-          <AdvancedOpsComponent {...commonProps} />
-        </OperationSection>
+          </TabsContent>
+        </Tabs>
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2 pt-6 border-t sm:flex-row sm:justify-between">
         <Button

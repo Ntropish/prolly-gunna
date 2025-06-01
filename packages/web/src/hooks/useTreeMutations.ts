@@ -175,62 +175,6 @@ export function useDiffTreesMutation() {
   return;
 }
 
-// --- Garbage Collect Mutation ---
-interface GarbageCollectArgs extends BaseTreeMutationArgs {
-  gcLiveHashesHex: string; // Comma-separated hex strings
-}
-export function useGarbageCollectMutation() {
-  const { updateTreeState } = useAppStore();
-  // We also need exportChunks logic here for the onSuccess
-  const exportChunksForGC = async (tree: WasmProllyTree) => {
-    const chunkMap = (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>;
-    const exportedChunks: { hash: string; size: number }[] = [];
-    for (const [keyU8, valueU8] of chunkMap.entries()) {
-      exportedChunks.push({ hash: u8ToHex(keyU8), size: valueU8.length });
-    }
-    return exportedChunks;
-  };
-
-  return useMutation({
-    mutationFn: async (args: GarbageCollectArgs) => {
-      const liveHashesU8Arrays: Uint8Array[] = args.gcLiveHashesHex
-        .split(",")
-        .map((h) => h.trim())
-        .filter((h) => h.length > 0) // Ensure not to process empty strings from split
-        .map((h) => {
-          const u8Arr = hexToU8(h);
-          if (!u8Arr) throw new Error(`Invalid live hash hex string: ${h}`);
-          return u8Arr;
-        });
-
-      const collectedCount = await args.tree.triggerGc(liveHashesU8Arrays);
-      const updatedChunks = await exportChunksForGC(args.tree); // Refresh chunks after GC
-      return {
-        treeId: args.treeId,
-        gcCollectedCount: collectedCount,
-        chunks: updatedChunks,
-      };
-    },
-    onSuccess: (data) => {
-      updateTreeState(data.treeId, {
-        gcCollectedCount: data.gcCollectedCount,
-        chunks: data.chunks,
-        lastError: null,
-      });
-      toast.success(
-        `${data.gcCollectedCount} chunk(s) collected by GC. Chunk list refreshed.`
-      );
-    },
-    onError: (error: Error, variables) => {
-      updateTreeState(variables.treeId, {
-        gcCollectedCount: null,
-        lastError: `GC failed: ${error.message}`,
-      });
-      toast.error(`GC failed: ${error.message}`);
-    },
-  });
-}
-
 // --- Refresh Root Hash Mutation ---
 export function useRefreshRootHashMutation() {
   // const { updateTreeState } = useAppStore();
