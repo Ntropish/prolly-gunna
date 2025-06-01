@@ -66,7 +66,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
       <CardHeader>
         <CardTitle className="text-xl tracking-tight flex items-center gap-2">
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
-            {treeState.id}
+            {treeState.path}
           </span>
           {/* <RenameDialog treeId={treeState.id} currentName={treeState.id} /> */}
           <span className="ml-2 flex gap-2 ml-auto">

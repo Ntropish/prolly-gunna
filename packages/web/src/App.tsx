@@ -1,54 +1,40 @@
 // src/App.tsx
-import { useEffect, useState, type ChangeEvent, useRef, useMemo } from "react";
-import { WasmProllyTree } from "prolly-wasm";
+import { useEffect, useMemo } from "react";
 
 import { useProllyStore } from "@/useProllyStore"; //  ← NEW STORE
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { TreeInterface } from "@/components/TreeInterface";
-import { Toaster, toast } from "sonner";
-import { Loader2, FileUp, PlusCircle, TreeDeciduous } from "lucide-react";
+import { Toaster } from "sonner";
+import { TreeDeciduous } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
+import { keyBy } from "lodash-es";
 
 export default function App() {
   const navigate = useNavigate();
-  // ────────────────────────────────────────────────────────────
-  //  1.  Store selectors
-  // ────────────────────────────────────────────────────────────
+
   const treesList = useProllyStore((s) => s.trees);
-  const trees = useMemo(
-    () =>
-      Object.values(treesList).map((tree) => ({
-        ...tree,
-      })),
-    [treesList]
-  );
+  const trees = useMemo(() => keyBy(treesList, "path"), [treesList]);
   const initializing = useProllyStore((s) => s.initializing);
 
-  // ────────────────────────────────────────────────────────────
-  //  2.  UI state
-  // ────────────────────────────────────────────────────────────
-  // const [activeTab, setActiveTab] = useState<string>();
   const { treeId } = useParams();
 
   // keep activeTab valid
   useEffect(() => {
+    if (initializing) return;
     if (!treeId && trees.length) {
-      navigate(`/${trees[0].id}`);
+      navigate(`/${trees[0].path}`);
     }
-    if (treeId && !trees.find((t) => t.id === treeId)) {
-      navigate(`/${trees.length ? trees[0].id : undefined}`);
+    if (treeId) {
+      const tree = trees[treeId];
+      if (!tree) {
+        navigate(`/${trees.length ? trees[0].path : undefined}`);
+      }
     }
-  }, [trees, treeId, navigate]);
+  }, [trees, treeId, navigate, initializing]);
 
   const tree = useMemo(() => {
-    return trees.find((t) => t.id === treeId);
+    return treeId && trees[treeId];
   }, [trees, treeId]);
 
-  // ────────────────────────────────────────────────────────────
-  //  4.  Render
-  // ────────────────────────────────────────────────────────────
   return (
     <div className="container mx-auto p-2 sm:p-1 space-y-1 min-h-screen">
       <Toaster richColors />

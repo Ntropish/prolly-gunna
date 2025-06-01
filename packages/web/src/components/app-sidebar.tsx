@@ -120,9 +120,9 @@ export function AppSidebar() {
                 asChild
                 isActive={location.pathname === `/${id}`}
               >
-                <Link to={`/${id}`}>
+                <Link to={`/${tree.path}`}>
                   <span className="text-xs text-overflow-ellipsis overflow-hidden font-mono">
-                    {tree.id}
+                    {tree.path}
                   </span>
                   {tree.rootHash !== tree.lastSavedRootHash && "*"}
                 </Link>
