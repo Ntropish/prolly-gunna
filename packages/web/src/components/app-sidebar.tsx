@@ -8,14 +8,110 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useProllyStore } from "@/useProllyStore";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
+import { Button } from "./ui/button";
+import { useRef, type ChangeEvent } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { WasmProllyTree } from "prolly-wasm";
+import { PlusCircle } from "lucide-react";
+import { Label } from "@radix-ui/react-label";
+import { Loader2, FileUp, TreeDeciduous } from "lucide-react";
+import { Input } from "./ui/input";
 
 export function AppSidebar() {
   const trees = useProllyStore((s) => s.trees);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const [working, setWorking] = useState<"create" | "load" | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function createNewTree() {
+    setWorking("create");
+    try {
+      const id = await useProllyStore.getState().createNewTree();
+      toast.success(`Created "${id}" (unsaved)`);
+      navigate(`/${id}`);
+    } catch (err: any) {
+      toast.error(`New tree failed: ${err.message ?? "Unknown"}`);
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function updloadTreeFromFile(file: File) {
+    setWorking("load");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const tree = await WasmProllyTree.loadTreeFromFileBytes(bytes);
+      const path = file.name;
+
+      const id = await useProllyStore.getState().createNewTree({
+        tree,
+        path,
+      });
+
+      toast.success(`Loaded "${file.name}"`);
+      navigate(`/${id}`);
+    } catch (err: any) {
+      toast.error(`Load failed: ${err.message ?? "Unknown"}`);
+    } finally {
+      setWorking(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) updloadTreeFromFile(f);
+  }
+
   return (
     <Sidebar>
-      <SidebarHeader />
+      <SidebarHeader>
+        <div className="flex gap-2 flex-wrap justify-center sm:justify-end">
+          <Button
+            size="sm"
+            onClick={createNewTree}
+            disabled={working === "create"}
+          >
+            {working === "create" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <PlusCircle className="mr-2 h-4 w-4" />
+            )}
+            New Tree
+          </Button>
+
+          <Label htmlFor="file-upload" className="cursor-pointer">
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              disabled={working === "load"}
+            >
+              <span>
+                {working === "load" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileUp className="mr-2 h-4 w-4" />
+                )}
+                Load Tree
+              </span>
+            </Button>
+          </Label>
+          <Input
+            id="file-upload"
+            ref={fileInputRef}
+            type="file"
+            accept=".prly,.prollytree,.prolly"
+            className="hidden"
+            onChange={onFileChosen}
+            disabled={working === "load"}
+          />
+        </div>
+      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="list-none">
           {Object.entries(trees).map(([id, tree]) => (
@@ -33,30 +129,6 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
-
-          {/* <SidebarMenuItem key="ingredients">
-            <SidebarMenuButton asChild>
-              <Link to="/admin/ingredients">Ingredients</Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
-          <SidebarMenuItem key="potions">
-            <SidebarMenuButton asChild>
-              <Link to="/admin/potions">Potions</Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
-          <SidebarMenuItem key="effects">
-            <SidebarMenuButton asChild>
-              <Link to="/admin/effects">Effects</Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
-          <SidebarMenuItem key="items">
-            <SidebarMenuButton asChild>
-              <Link to="/admin/items">Items</Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem> */}
         </SidebarGroup>
         <SidebarGroup />
       </SidebarContent>
