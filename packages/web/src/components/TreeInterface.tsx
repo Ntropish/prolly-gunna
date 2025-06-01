@@ -65,7 +65,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     <Card className="w-full shadow-lg border">
       <CardHeader>
         <CardTitle className="text-xl tracking-tight flex items-center gap-2">
-          Tree Instance:{" "}
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
             {treeState.id}
           </span>

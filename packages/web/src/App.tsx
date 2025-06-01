@@ -50,14 +50,16 @@ export default function App() {
   //  4.  Render
   // ────────────────────────────────────────────────────────────
   return (
-    <div className="container mx-auto p-2 sm:p-1 space-y-6 min-h-screen">
+    <div className="container mx-auto p-2 sm:p-1 space-y-1 min-h-screen">
       <Toaster richColors />
 
       {/* HEADER */}
-      <header className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-6 border-b">
-        <div className="flex items-center gap-2">
-          <TreeDeciduous className="h-8 w-8 text-primary" />
-          <h1 className="text-3xl font-bold tracking-tight">Prolly Tree Web</h1>
+      <header className="flex flex-col sm:flex-row justify-between items-center gap-4 border-b">
+        <div className="flex items-center gap-2 ml-11">
+          <TreeDeciduous className="h-8 w-8 text-muted-foreground" />
+          <h1 className="text-3xl font-light tracking-tight text-muted-foreground">
+            PBT
+          </h1>
         </div>
       </header>
 
