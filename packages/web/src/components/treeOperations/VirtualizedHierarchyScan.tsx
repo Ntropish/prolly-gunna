@@ -48,7 +48,7 @@ interface HierarchyScanPageResult {
 
 interface VirtualizedHierarchyScanProps {
   tree: WasmProllyTree | null;
-  treeId: string;
+  treePath: string;
   currentRoot: string | null;
   height?: string;
   itemHeight?: number;
@@ -103,7 +103,7 @@ const ITEMS_PER_PAGE = 30;
 
 export const VirtualizedHierarchyScan: React.FC<
   VirtualizedHierarchyScanProps
-> = ({ tree, treeId, currentRoot, height = "500px", itemHeight = 30 }) => {
+> = ({ tree, treePath, currentRoot, height = "500px", itemHeight = 30 }) => {
   const [startKeyInput, setStartKeyInput] = useState<string>("");
   const [maxDepthInput, setMaxDepthInput] = useState<string>("");
 
@@ -145,7 +145,6 @@ export const VirtualizedHierarchyScan: React.FC<
     // Query key changes when base scan args (startKey, maxDepth) change
     queryKey: ["hierarchyScan", currentRoot, appliedScanArgsForQueryKey],
     queryFn: async ({ pageParam = 0 }) => {
-      // pageParam is now the offset
       if (!tree) throw new Error("Tree not available for hierarchy scan.");
 
       const scanArgsForWasm: HierarchyScanArgsWasm = {
@@ -153,10 +152,7 @@ export const VirtualizedHierarchyScan: React.FC<
         offset: pageParam, // +++ Use pageParam as offset +++
         limit: ITEMS_PER_PAGE,
       };
-      // console.log("Fetching hierarchy page with args:", scanArgsForWasm);
-      return tree.hierarchyScan(
-        scanArgsForWasm
-      ) as Promise<HierarchyScanPageResult>;
+      return tree.hierarchyScan(scanArgsForWasm);
     },
     initialPageParam: 0, // Start with offset 0
     getNextPageParam: (lastPage, allPages, lastPageParam) => {

@@ -10,18 +10,18 @@ import { useApplyJsonlMutation } from "./hooks/useApplyJsonlMutation";
 
 interface JsonlFileLoaderProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }
 
 export const JsonlFileLoaderComponent: React.FC<JsonlFileLoaderProps> = ({
   tree,
-  treeId,
+  treePath,
 }) => {
   const [isLoadingJsonlFile, setIsLoadingJsonlFile] = useState(false);
   const jsonlFileInputRef = useRef<HTMLInputElement>(null);
   const applyJsonlMutation = useApplyJsonlMutation({
     tree,
-    treeId,
+    treePath,
   });
 
   const handleJsonlFileSelected = async (
@@ -80,7 +80,10 @@ export const JsonlFileLoaderComponent: React.FC<JsonlFileLoaderProps> = ({
   return (
     <div className="space-y-2">
       <h4 className="font-medium text-sm">Load JSONL from File</h4>
-      <Label htmlFor={`jsonl-file-upload-${treeId}`} className="cursor-pointer">
+      <Label
+        htmlFor={`jsonl-file-upload-${treePath}`}
+        className="cursor-pointer"
+      >
         <Button
           asChild
           variant="outline"
@@ -101,7 +104,7 @@ export const JsonlFileLoaderComponent: React.FC<JsonlFileLoaderProps> = ({
       </Label>
       <Input
         ref={jsonlFileInputRef}
-        id={`jsonl-file-upload-${treeId}`}
+        id={`jsonl-file-upload-${treePath}`}
         type="file"
         className="hidden"
         onChange={handleJsonlFileSelected}

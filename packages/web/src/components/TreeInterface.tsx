@@ -22,30 +22,67 @@ import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
 import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
 import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea";
 import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader";
-import {
-  useRefreshRootHashMutation,
-  useSaveTreeToFileMutation,
-} from "@/hooks/useTreeMutations";
+
 import { useProllyStore, type ProllyTree } from "@/useProllyStore";
 import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
-import {
-  generateTreeFilename,
-  triggerBrowserDownload,
-} from "@/lib/prollyUtils";
+import { triggerBrowserDownload } from "@/lib/prollyUtils";
 import { toast } from "sonner";
 import { useMutation } from "@tanstack/react-query";
 import { ProllyFilePanel } from "./treeOperations/FilePanel";
-// import { RenameDialog } from "./treeOperations/RenameDialog"; // Assuming RenameDialog is still used as is
-
+// import { RenameDialog } from "./treeOperations/RenameDialog";
+import {
+  adjectives,
+  animals,
+  uniqueNamesGenerator,
+} from "unique-names-generator";
 interface TreeInterfaceProps {
   treeState: ProllyTree;
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
-  const saveTreeMutation = useSaveTreeToFileMutation();
+  const trees = useProllyStore((state) => state.trees);
+  const saveTreeMutation = useMutation({
+    mutationFn: async (args: { description?: string }) => {
+      const currentTreeState = trees[treeState.path];
+      if (!currentTreeState) {
+        throw new Error(
+          `Tree with ID "${args.treeId}" not found in app state.`
+        );
+      }
+
+      const fileBytesU8 = await currentTreeState.tree.saveTreeToFileBytes(
+        args.description || undefined
+      );
+
+      if (!fileBytesU8 || fileBytesU8.length === 0) {
+        throw new Error("Wasm module returned empty file data.");
+      }
+
+      return {
+        buffer: fileBytesU8.buffer,
+        filename:
+          treeState.path ||
+          `${uniqueNamesGenerator({
+            dictionaries: [adjectives, animals],
+            separator: "-",
+            length: 2,
+          })}.prly`,
+      };
+    },
+    onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
+      triggerBrowserDownload(data.buffer, data.filename);
+      toast.success("Tree saved to file successfully.");
+    },
+    onError: (error: Error) => {
+      console.error("Save tree to file failed:", error);
+      toast.error(
+        `Save tree failed: ${error.message || "Wasm error during save"}`
+      );
+    },
+  });
 
   const handleSave = () => {
-    useProllyStore.getState().saveTree(treeState.id);
+    useProllyStore.getState().saveTree(treeState.path);
   };
 
   const commonProps = {
@@ -94,7 +131,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
               <VirtualizedTreeItems
                 currentRoot={treeState.rootHash}
                 tree={treeState.tree as WasmProllyTree}
-                treeId={treeState.id}
+                treePath={treeState.path}
                 height="400px"
                 itemHeight={65}
               />
@@ -108,7 +145,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
               <VirtualizedHierarchyScan
                 currentRoot={treeState.rootHash}
                 tree={treeState.tree as WasmProllyTree}
-                treeId={treeState.id}
+                treePath={treeState.path}
                 height="400px"
                 itemHeight={65} // Adjust as needed, hierarchy items might be taller
               />
@@ -120,7 +157,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           <TabsContent value="file" className="border-t pt-4">
             <ProllyFilePanel
               tree={treeState.tree}
-              treeId={treeState.id}
+              treePath={treeState.path}
               treeConfig={treeState.treeConfig}
               rootHash={treeState.rootHash}
             />
@@ -130,9 +167,9 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             <div className="space-y-4">
               <JsonlFileLoaderComponent
                 tree={treeState.tree}
-                treeId={treeState.id}
+                treePath={treeState.path}
               />
-              <JsonlBatchArea tree={treeState.tree} treeId={treeState.id} />
+              <JsonlBatchArea tree={treeState.tree} treePath={treeState.path} />
             </div>
           </TabsContent>
 

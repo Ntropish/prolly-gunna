@@ -3,10 +3,12 @@ import { WasmProllyTree, type TreeConfigOptions } from "prolly-wasm";
 import { u8ToHex } from "@/lib/prollyUtils";
 import { uuidv7 } from "uuidv7";
 import { produce } from "immer";
+import { adjectives, colors } from "unique-names-generator";
+import { uniqueNamesGenerator } from "unique-names-generator";
+import { animals } from "unique-names-generator";
 
 export interface ProllyTree {
   path: string;
-  id: string;
   tree: WasmProllyTree;
   lastSavedRootHash: string | null;
   rootHash: string | null;
@@ -28,8 +30,10 @@ interface ProllyStoreState {
   deleteTree: (treeId: string) => Promise<void>;
   renameTree: (treeId: string, newName: string) => Promise<void>;
 
-  treeUpdated: (treeId: string) => Promise<void>;
-  treeError: (treeId: string, error: string) => Promise<void>;
+  refreshRootHash: (treePath: string) => Promise<void>;
+
+  treeUpdated: (treePath: string) => Promise<void>;
+  treeError: (treePath: string, error: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +74,6 @@ async function fileHandleToTree(
 
   return {
     path: name,
-    id: uuidv7(),
     tree,
     lastSavedRootHash: rootHashHex,
     rootHash: rootHashHex,
@@ -92,7 +95,7 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
 
       for await (const { name, handle } of findPrlyFiles(opfsRoot)) {
         const tree = await fileHandleToTree(name, handle);
-        newTrees[tree.id] = tree;
+        newTrees[tree.path] = tree;
       }
 
       set({ trees: newTrees });
@@ -109,8 +112,8 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
     trees: {},
     initializing: true,
 
-    refreshRootHash: async (treeId: string) => {
-      const treeEntry = get().trees[treeId];
+    refreshRootHash: async (treePath: string) => {
+      const treeEntry = get().trees[treePath];
       if (!treeEntry) return;
 
       try {
@@ -120,17 +123,17 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
         set((s) => ({
           trees: {
             ...s.trees,
-            [treeId]: { ...treeEntry, rootHash: newRoot, isDirty },
+            [treePath]: { ...treeEntry, rootHash: newRoot, isDirty },
           },
         }));
       } catch (err) {
-        console.error(`⚠️  Failed to refresh root hash for ${treeId}:`, err);
+        console.error(`⚠️  Failed to refresh root hash for ${treePath}:`, err);
       }
     },
 
-    saveTree: async (treeId: string) => {
+    saveTree: async (treePath: string) => {
       const state = get();
-      const treeEntry = state.trees[treeId];
+      const treeEntry = state.trees[treePath];
       if (!treeEntry) return; // Unknown id.
 
       try {
@@ -138,9 +141,9 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
         let fileHandle = treeEntry.fileHandle;
         if (!fileHandle) {
           const opfsRoot = await navigator.storage.getDirectory();
-          const filename = treeId.toLowerCase().endsWith(".prly")
-            ? treeId
-            : `${treeId}.prly`;
+          const filename = treePath.toLowerCase().endsWith(".prly")
+            ? treePath
+            : `${treePath}.prly`;
 
           fileHandle = await opfsRoot.getFileHandle(filename, { create: true });
 
@@ -148,7 +151,7 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
           // Patch the tree entry with the new handle.
           set((s) => ({
             trees: produce(s.trees, (draft) => {
-              draft[treeId].fileHandle = fileHandle;
+              draft[treePath].fileHandle = fileHandle;
             }),
           }));
         }
@@ -165,12 +168,12 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
 
         set((s) => ({
           trees: produce(s.trees, (draft) => {
-            draft[treeId].rootHash = rootHashHex;
-            draft[treeId].lastSavedRootHash = rootHashHex;
+            draft[treePath].rootHash = rootHashHex;
+            draft[treePath].lastSavedRootHash = rootHashHex;
           }),
         }));
       } catch (err) {
-        console.error(`⚠️  Failed to save tree ${treeId}:`, err);
+        console.error(`⚠️  Failed to save tree ${treePath}:`, err);
       }
     },
 
@@ -180,30 +183,35 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
       const tree = options?.tree ?? new WasmProllyTree();
       const cfg = options?.treeConfig ?? (await tree.getTreeConfig());
       const root = await tree.getRootHash();
-      const id = uuidv7();
+      const path =
+        options?.path ??
+        uniqueNamesGenerator({
+          dictionaries: [adjectives, animals],
+          separator: "-",
+          length: 2,
+        }) + ".prly";
 
       set((s) => ({
         trees: produce(s.trees, (draft) => {
-          draft[id] = {
-            id,
+          draft[path] = {
             tree,
             treeConfig: cfg,
             rootHash: root ? u8ToHex(root) : null,
             lastSavedRootHash: null,
             lastError: null,
             fileHandle: null,
-            path: options?.path ?? id,
+            path,
           };
         }),
       }));
 
-      await get().saveTree(id);
+      await get().saveTree(path);
 
-      return id;
+      return path;
     },
 
-    deleteTree: async (treeId: string) => {
-      const treeEntry = get().trees[treeId];
+    deleteTree: async (treePath: string) => {
+      const treeEntry = get().trees[treePath];
       if (!treeEntry) return;
 
       if (treeEntry.fileHandle) {
@@ -214,17 +222,17 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
 
       set((s) => ({
         trees: produce(s.trees, (draft) => {
-          delete draft[treeId];
+          delete draft[treePath];
         }),
       }));
     },
 
-    renameTree: async (treeId: string, newName: string) => {
+    renameTree: async (treePath: string, newName: string) => {
       throw new Error("Not implemented");
     },
 
-    treeUpdated: async (treeId: string) => {
-      const treeEntry = get().trees[treeId];
+    treeUpdated: async (treePath: string) => {
+      const treeEntry = get().trees[treePath];
       if (!treeEntry) return;
 
       try {
@@ -232,21 +240,31 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
         const newRoot = rootHashU8 ? u8ToHex(rootHashU8) : null;
         set((s) => ({
           trees: produce(s.trees, (draft) => {
-            draft[treeId].rootHash = newRoot;
-            draft[treeId].lastError = null;
+            draft[treePath].rootHash = newRoot;
+            draft[treePath].lastError = null;
           }),
         }));
       } catch (err) {
-        console.error(`⚠️  Failed to reload hash for ${treeId}:`, err);
+        console.error(`⚠️  Failed to reload hash for ${treePath}:`, err);
       }
     },
 
-    treeError: (treeId: string, error: string) => {
-      set((s) => ({
-        trees: produce(s.trees, (draft) => {
-          draft[treeId].lastError = error;
-        }),
-      }));
+    treeError: async (treePath: string, error: string) => {
+      const treeEntry = get().trees[treePath];
+      if (!treeEntry) return;
+
+      try {
+        const rootHashU8 = await treeEntry.tree.getRootHash();
+        const newRoot = rootHashU8 ? u8ToHex(rootHashU8) : null;
+        set((s) => ({
+          trees: produce(s.trees, (draft) => {
+            draft[treePath].rootHash = newRoot;
+            draft[treePath].lastError = error;
+          }),
+        }));
+      } catch (err) {
+        console.error(`⚠️  Failed to reload hash for ${treePath}:`, err);
+      }
     },
   };
 });

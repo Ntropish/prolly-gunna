@@ -114,21 +114,23 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="list-none">
-          {Object.entries(trees).map(([id, tree]) => (
-            <SidebarMenuItem key={id}>
-              <SidebarMenuButton
-                asChild
-                isActive={location.pathname === `/${id}`}
-              >
-                <Link to={`/${tree.path}`}>
-                  <span className="text-xs text-overflow-ellipsis overflow-hidden font-mono">
-                    {tree.path}
-                  </span>
-                  {tree.rootHash !== tree.lastSavedRootHash && "*"}
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
+          {Object.entries(trees)
+            .sort((a, b) => a[1].path.localeCompare(b[1].path))
+            .map(([id, tree]) => (
+              <SidebarMenuItem key={id}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === `/${id}`}
+                >
+                  <Link to={`/${tree.path}`}>
+                    <span className="text-xs text-overflow-ellipsis overflow-hidden font-mono">
+                      {tree.path.replace(/\.prly$/, "")}
+                    </span>
+                    {tree.rootHash !== tree.lastSavedRootHash && "*"}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
         </SidebarGroup>
         <SidebarGroup />
       </SidebarContent>

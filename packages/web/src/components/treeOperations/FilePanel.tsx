@@ -4,21 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Trash, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { useProllyStore } from "@/useProllyStore";
-import { generateTreeFilename } from "@/lib/prollyUtils";
 import { triggerBrowserDownload } from "@/lib/prollyUtils";
 import { useMutation } from "@tanstack/react-query";
 import { TreeInfoPanel } from "./TreeInfoPanel";
 
 interface JsonlFileLoaderProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
   treeConfig: TreeConfigOptions | null;
   rootHash: string | null;
 }
 
 export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
   tree,
-  treeId,
+  treePath,
   treeConfig,
   rootHash,
 }) => {
@@ -38,7 +37,7 @@ export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
 
       return {
         buffer: fileBytesU8.buffer,
-        filename: generateTreeFilename(treeId),
+        filename: treePath,
       };
     },
     onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
@@ -58,7 +57,7 @@ export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
   };
 
   const handleDelete = () => {
-    useProllyStore.getState().deleteTree(treeId);
+    useProllyStore.getState().deleteTree(treePath);
   };
 
   return (

@@ -13,17 +13,17 @@ import { useApplyJsonlMutation } from "./hooks/useApplyJsonlMutation";
 
 interface JsonlBatchAreaProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }
 
 export const JsonlBatchArea: React.FC<JsonlBatchAreaProps> = ({
   tree,
-  treeId,
+  treePath,
 }) => {
   const [jsonlText, setJsonlText] = useState("");
   const applyJsonlMutation = useApplyJsonlMutation({
     tree,
-    treeId,
+    treePath,
   });
 
   const handleApplyJsonl = () => {

@@ -11,12 +11,11 @@ interface JsonlItem {
 
 export const useApplyJsonlMutation = ({
   tree,
-  treeId,
+  treePath,
 }: {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }) => {
-  const queryClient = useQueryClient();
   const applyJsonlMutation = useMutation({
     mutationFn: async (args: { items: JsonlItem[] }) => {
       if (args.items.length === 0) {
@@ -33,15 +32,14 @@ export const useApplyJsonlMutation = ({
       await tree.insertBatch(batchForWasm); // This is the Wasm function
       const newRootHashU8 = await tree.getRootHash();
       return {
-        treeId: treeId,
+        treePath: treePath,
         newRootHash: u8ToHex(newRootHashU8),
         count: args.items.length,
         noOp: false,
       };
     },
     onSuccess: (data) => {
-      useProllyStore.getState().treeUpdated(treeId);
-
+      useProllyStore.getState().treeUpdated(treePath);
       if (data.noOp) {
         toast.info("No items provided in JSONL batch.");
       } else {
@@ -49,12 +47,11 @@ export const useApplyJsonlMutation = ({
           `Successfully applied ${data.count} entries from JSONL batch.`
         );
       }
-      queryClient.invalidateQueries({ queryKey: ["items", data.treeId] });
     },
     onError: (error: Error) => {
       useProllyStore
         .getState()
-        .treeError(treeId, `JSONL batch apply failed: ${error.message}`);
+        .treeError(treePath, `JSONL batch apply failed: ${error.message}`);
       toast.error(`JSONL batch apply failed: ${error.message}`);
     },
   });

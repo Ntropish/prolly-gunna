@@ -55,7 +55,7 @@ interface ScanPage {
 
 interface VirtualizedTreeItemsProps {
   tree: WasmProllyTree | null;
-  treeId: string;
+  treePath: string;
   currentRoot: string | null;
   height?: string;
   itemHeight?: number;
@@ -81,7 +81,7 @@ const ITEMS_PER_PAGE = 50;
 // --- Main Component ---
 export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
   tree,
-  treeId,
+  treePath,
   currentRoot,
   height = "400px",
   itemHeight = 60,
@@ -290,7 +290,7 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
         .map((item) => JSON.stringify({ key: item.key, value: item.value }))
         .join("\n");
 
-      const filename = `prolly_scan_${treeId}_${new Date()
+      const filename = `${treePath.replace(/\.prly$/, "")}_${new Date()
         .toISOString()
         .replace(/[:.]/g, "-")}.jsonl`;
       return { data: new TextEncoder().encode(jsonlString), filename };
@@ -302,12 +302,14 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
           result.filename,
           "application/jsonl"
         );
-        toast.success(`Downloaded scan results for tree "${treeId}" as JSONL.`);
+        toast.success(
+          `Downloaded scan results for tree "${treePath}" as JSONL.`
+        );
       }
     },
     onError: (error: Error) => {
       toast.error(
-        `Failed to download scan for tree "${treeId}": ${error.message}`
+        `Failed to download scan for tree "${treePath}": ${error.message}`
       );
     },
   });

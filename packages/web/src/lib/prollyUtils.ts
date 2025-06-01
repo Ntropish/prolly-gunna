@@ -1,5 +1,6 @@
 // src/lib/prollyUtils.ts
 
+import { uniqueNameGenerator } from "unique-name-generator";
 export const FILE_SIGNATURE = "PRLYTRE1"; // 8 bytes
 export const FILE_VERSION = 0x01; // 1 byte
 
@@ -73,17 +74,6 @@ export const hexToU8 = (hexString: string): Uint8Array | null => {
     byteArray[i] = byte;
   }
   return byteArray;
-};
-
-/**
- * Generates a filename for saving a tree.
- * @param treeId The ID of the tree.
- * @returns A string representing the filename.
- */
-export const generateTreeFilename = (treeId: string): string => {
-  const cleanTreeId = treeId.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `prolly-tree-${cleanTreeId}-${timestamp}.prly`;
 };
 
 /**

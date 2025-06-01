@@ -18,12 +18,12 @@ import { Separator } from "@radix-ui/react-separator";
 
 interface BasicOpsProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }
 
 export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   tree,
-  treeId,
+  treePath,
 }) => {
   const [insertKey, setInsertKey] = useState("");
   const [insertValue, setInsertValue] = useState("");
@@ -33,7 +33,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   const insertMutation = useMutation({
     mutationFn: async () => {
       await tree.insert(toU8(insertKey), toU8(insertValue));
-      useProllyStore.getState().treeUpdated(treeId);
+      useProllyStore.getState().treeUpdated(treePath);
       toast.success(`Inserted "${insertKey}"`);
     },
   });
@@ -41,7 +41,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   const deleteMutation = useMutation({
     mutationFn: async () => {
       await tree.delete(toU8(deleteKeyInput));
-      useProllyStore.getState().treeUpdated(treeId);
+      useProllyStore.getState().treeUpdated(treePath);
       toast.success(`Deleted "${deleteKeyInput}"`);
     },
   });
