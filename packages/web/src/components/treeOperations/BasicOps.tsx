@@ -3,12 +3,18 @@ import React, { useState } from "react";
 import { type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, CheckCircle, Search, Trash2 } from "lucide-react";
+import { Loader2, CheckCircle, Search, Trash2, FileDown } from "lucide-react";
 
-import { toU8, u8ToString } from "@/lib/prollyUtils";
+import {
+  generateTreeFilename,
+  toU8,
+  triggerBrowserDownload,
+  u8ToString,
+} from "@/lib/prollyUtils";
 import { toast } from "sonner";
 import { useProllyStore } from "@/useProllyStore";
 import { useMutation } from "@tanstack/react-query";
+import { Separator } from "@radix-ui/react-separator";
 
 interface BasicOpsProps {
   tree: WasmProllyTree;
@@ -47,7 +53,7 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
   };
 
   return (
-    <>
+    <div className="space-y-4 flex flex-col gap-4">
       <div className="space-y-2">
         <h4 className="font-medium text-sm">Insert / Update Key-Value</h4>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -119,6 +125,6 @@ export const BasicOpsComponent: React.FC<BasicOpsProps> = ({
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 };

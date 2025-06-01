@@ -28,6 +28,12 @@ import {
 } from "@/hooks/useTreeMutations";
 import { useProllyStore, type ProllyTree } from "@/useProllyStore";
 import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
+import {
+  generateTreeFilename,
+  triggerBrowserDownload,
+} from "@/lib/prollyUtils";
+import { toast } from "sonner";
+import { useMutation } from "@tanstack/react-query";
 // import { RenameDialog } from "./treeOperations/RenameDialog"; // Assuming RenameDialog is still used as is
 
 interface TreeInterfaceProps {
@@ -35,18 +41,41 @@ interface TreeInterfaceProps {
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
-  const refreshRootHashMutation = useRefreshRootHashMutation();
   const saveTreeMutation = useSaveTreeToFileMutation();
 
-  const handleRefresh = () => {
-    refreshRootHashMutation.mutate({
-      treeId: treeState.id,
-      tree: treeState.tree,
-    });
-  };
+  const downloadMutation = useMutation({
+    mutationFn: async ({ description }: { description?: string }) => {
+      if (!treeState.tree) {
+        throw new Error(`No tree provided for saving.`);
+      }
+
+      const fileBytesU8 = await tree.saveTreeToFileBytes(
+        description || undefined
+      );
+
+      if (!fileBytesU8 || fileBytesU8.length === 0) {
+        throw new Error("Wasm module returned empty file data.");
+      }
+
+      return {
+        buffer: fileBytesU8.buffer,
+        filename: generateTreeFilename(treeState.id),
+      };
+    },
+    onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
+      triggerBrowserDownload(data.buffer, data.filename);
+      toast.success("Tree saved to file successfully.");
+    },
+    onError: (error: Error) => {
+      console.error("Save tree to file failed:", error);
+      toast.error(
+        `Save tree failed: ${error.message || "Wasm error during save"}`
+      );
+    },
+  });
 
   const handleDownload = () => {
-    saveTreeMutation.mutate({ treeId: treeState.id, tree: treeState.tree });
+    downloadMutation.mutate({ description: "BasicOps Download" });
   };
 
   const handleSave = () => {
@@ -74,34 +103,59 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </span>
           {/* <RenameDialog treeId={treeState.id} currentName={treeState.id} /> */}
           <span className="ml-2 flex gap-2 ml-auto">
-            <Button size="icon" onClick={handleSave}>
-              <Save className="h-4 w-4" />
-            </Button>
-            <Button size="icon" onClick={handleDelete} variant="destructive">
-              <Trash className="h-4 w-4" />
-            </Button>
+            {treeState.rootHash !== treeState.lastSavedRootHash && (
+              <Button size="icon" onClick={handleSave}>
+                <Save className="h-4 w-4" />
+              </Button>
+            )}
           </span>
         </CardTitle>
         <CardDescription className="pt-1">
-          Current Root Hash:{" "}
-          <span className="font-mono text-xs">
-            {treeState.rootHash || "N/A (Empty Tree)"}
-          </span>
-          {treeState.treeConfig && (
-            <span className="block text-xs text-muted-foreground mt-1">
-              (Config: Target Fanout {treeState.treeConfig.targetFanout}, Min
-              Fanout {treeState.treeConfig.minFanout}, Max Inline Value{" "}
-              {treeState.treeConfig.maxInlineValueSize}B, CDC Min{" "}
-              {treeState.treeConfig.cdcMinSize}B / Avg{" "}
-              {treeState.treeConfig.cdcAvgSize}B / Max{" "}
-              {treeState.treeConfig.cdcMaxSize}B)
+          <div className="flex flex-col gap-2 flex-[1_1_0]">
+            Current Root Hash:{" "}
+            <span className="font-mono text-xs max-w-full overflow-hidden">
+              {treeState.rootHash || "N/A (Empty Tree)"}
             </span>
-          )}
+            {treeState.treeConfig && (
+              <span className="block text-xs text-muted-foreground mt-1">
+                (Config: Target Fanout {treeState.treeConfig.targetFanout}, Min
+                Fanout {treeState.treeConfig.minFanout}, Max Inline Value{" "}
+                {treeState.treeConfig.maxInlineValueSize}B, CDC Min{" "}
+                {treeState.treeConfig.cdcMinSize}B / Avg{" "}
+                {treeState.treeConfig.cdcAvgSize}B / Max{" "}
+                {treeState.treeConfig.cdcMaxSize}B)
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-row gap-2 ml-auto">
+            <Button
+              onClick={handleDownload}
+              disabled={downloadMutation.isPending}
+              className="sm:w-auto"
+            >
+              {downloadMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              Download Tree
+            </Button>
+
+            <Button
+              onClick={handleDelete}
+              variant="destructive"
+              className="sm:w-auto"
+            >
+              <Trash className="mr-2 h-4 w-4" />
+              Delete Tree
+            </Button>
+          </div>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
         <Tabs defaultValue={defaultTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 md:h-16 ">
+          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 h-16 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="basic">Basic Ops</TabsTrigger>
             <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
@@ -164,33 +218,6 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </TabsContent>
         </Tabs>
       </CardContent>
-      <CardFooter className="flex-col items-stretch gap-2 pt-6 border-t sm:flex-row sm:justify-between">
-        <Button
-          onClick={handleRefresh}
-          variant="outline"
-          disabled={refreshRootHashMutation.isPending}
-          className="w-full sm:w-auto"
-        >
-          {refreshRootHashMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Refresh Root Hash
-        </Button>
-        <Button
-          onClick={handleDownload}
-          disabled={saveTreeMutation.isPending}
-          className="w-full sm:w-auto"
-        >
-          {saveTreeMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <FileDown className="mr-2 h-4 w-4" />
-          )}
-          Save Tree to File
-        </Button>
-      </CardFooter>
     </Card>
   );
 }
