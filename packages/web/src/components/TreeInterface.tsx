@@ -101,11 +101,11 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
       </CardHeader>
       <CardContent className="space-y-1 pt-2">
         <Tabs defaultValue={defaultTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 md:h-14 ">
-            <TabsTrigger value="scan">Scan Items</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-2 md:h-16 ">
+            <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="basic">Basic Ops</TabsTrigger>
             <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
-            <TabsTrigger value="batchInsert">Batch Insert (JSONL)</TabsTrigger>
+            <TabsTrigger value="batchInsert">Batch Insert</TabsTrigger>
             <TabsTrigger value="diff">Diff</TabsTrigger>
             <TabsTrigger value="gc">GC</TabsTrigger>
           </TabsList>
