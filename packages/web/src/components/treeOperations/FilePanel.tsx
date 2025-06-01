@@ -1,17 +1,12 @@
 // packages/web/src/components/treeOperations/JsonlFileLoader.tsx
-import React, { useState, useRef, type ChangeEvent } from "react";
 import { type TreeConfigOptions, type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, FileUp, Trash, FileDown } from "lucide-react";
+import { Loader2, Trash, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { useProllyStore } from "@/useProllyStore";
-import { useApplyJsonlMutation } from "./hooks/useApplyJsonlMutation";
 import { generateTreeFilename } from "@/lib/prollyUtils";
 import { triggerBrowserDownload } from "@/lib/prollyUtils";
 import { useMutation } from "@tanstack/react-query";
-import { JsonlBatchArea } from "./JsonlBatchArea";
 import { TreeInfoPanel } from "./TreeInfoPanel";
 
 interface JsonlFileLoaderProps {
@@ -27,13 +22,6 @@ export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
   treeConfig,
   rootHash,
 }) => {
-  const [isLoadingJsonlFile, setIsLoadingJsonlFile] = useState(false);
-  const jsonlFileInputRef = useRef<HTMLInputElement>(null);
-  const applyJsonlMutation = useApplyJsonlMutation({
-    tree,
-    treeId,
-  });
-
   const downloadMutation = useMutation({
     mutationFn: async ({ description }: { description?: string }) => {
       if (!tree) {
@@ -81,30 +69,32 @@ export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
           treeConfig: treeConfig,
         }}
       />
-      <div className="flex flex-row gap-2">
-        <Button
-          className="flex-1"
-          onClick={handleDownload}
-          disabled={downloadMutation.isPending}
-        >
-          {downloadMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <FileDown className="mr-2 h-4 w-4" />
-          )}
-          Download Tree
-        </Button>
-      </div>
+      <div className="flex flex-row gap-2 justify-between">
+        <div>
+          <Button
+            onClick={handleDelete}
+            variant="destructive"
+            className="sm:w-auto"
+          >
+            <Trash className="mr-2 h-4 w-4" />
+            Delete
+          </Button>
+        </div>
 
-      <div>
-        <Button
-          onClick={handleDelete}
-          variant="destructive"
-          className="sm:w-auto"
-        >
-          <Trash className="mr-2 h-4 w-4" />
-          Delete Tree
-        </Button>
+        <div className="flex flex-row gap-2">
+          <Button
+            className="flex-1"
+            onClick={handleDownload}
+            disabled={downloadMutation.isPending}
+          >
+            {downloadMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="mr-2 h-4 w-4" />
+            )}
+            Download PRLY
+          </Button>
+        </div>
       </div>
     </div>
   );

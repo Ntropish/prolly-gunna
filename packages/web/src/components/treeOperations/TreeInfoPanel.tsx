@@ -23,7 +23,7 @@ export const TreeInfoPanel: React.FC<Props> = ({ treeState }) => {
   };
 
   return (
-    <Card className="w-full md:max-w-lg">
+    <Card className="w-full md:max-w-lg mx-auto">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium tracking-wide">
