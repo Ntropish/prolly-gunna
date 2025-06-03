@@ -21,12 +21,20 @@ export default function App() {
   useEffect(() => {
     if (initializing) return;
     if (!treeId && trees.length) {
-      navigate(`/${trees[0].path}`);
+      if (trees.length) {
+        navigate(`/${trees[0].path}`);
+      } else {
+        navigate("/");
+      }
     }
     if (treeId) {
       const tree = trees[treeId];
       if (!tree) {
-        navigate(`/${trees.length ? trees[0].path : undefined}`);
+        if (trees.length) {
+          navigate(`/${trees[0].path}`);
+        } else {
+          navigate("/");
+        }
       }
     }
   }, [trees, treeId, navigate, initializing]);

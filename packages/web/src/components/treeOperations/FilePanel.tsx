@@ -29,18 +29,6 @@ export const ProllyFilePanel: React.FC<JsonlFileLoaderProps> = ({
           treeConfig: treeConfig,
         }}
       />
-      <div className="flex flex-row gap-2 justify-between">
-        <div>
-          <Button
-            onClick={handleDelete}
-            variant="destructive"
-            className="sm:w-auto"
-          >
-            <Trash className="mr-2 h-4 w-4" />
-            Delete
-          </Button>
-        </div>
-      </div>
     </div>
   );
 };
