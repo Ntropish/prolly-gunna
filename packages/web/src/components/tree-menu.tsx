@@ -30,6 +30,7 @@ import {
 } from "./ui/dialog";
 import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea";
 import { Textarea } from "./ui/textarea";
+import { useDownloadScanMutation } from "./treeOperations/hooks/useDownloadScanMutation";
 
 function parseJsonlFile(fileContent: string) {
   const lines = fileContent.split("\n");
@@ -168,6 +169,19 @@ export function TreeMenu({
     downloadMutation.mutate({ description: "BasicOps Download" });
   };
 
+  const downloadScanMutation = useDownloadScanMutation({
+    tree: prly.tree,
+    treePath: treePath.replace(/\.prly$/, ".jsonl"),
+  });
+
+  const handleDownloadScan = () => {
+    if (!prly.tree) {
+      toast.error("Tree instance not available for download.");
+      return;
+    }
+    downloadScanMutation.mutate({});
+  };
+
   const handleDelete = () => {
     useProllyStore.getState().deleteTree(treePath);
   };
@@ -185,6 +199,10 @@ export function TreeMenu({
           <DropdownMenuItem onClick={handleDownload}>
             <Download className="mr-2 h-4 w-4" />
             Download PRLY
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleDownloadScan}>
+            <FileText className="mr-2 h-4 w-4" />
+            Download JSONL
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => jsonlFileInputRef.current?.click()}>
             <FileUp className="mr-2 h-4 w-4" />
