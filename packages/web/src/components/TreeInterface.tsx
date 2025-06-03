@@ -123,7 +123,10 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </TabsList>
 
           <TabsContent value="basic" className="border-t pt-4">
-            <BasicOpsComponent tree={treeState.tree} treeId={treeState.id} />
+            <BasicOpsComponent
+              tree={treeState.tree}
+              treePath={treeState.path}
+            />
           </TabsContent>
 
           <TabsContent value="scan" className="border-t pt-4">
