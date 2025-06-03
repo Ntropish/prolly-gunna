@@ -18,6 +18,7 @@ import { PlusCircle } from "lucide-react";
 import { Label } from "@radix-ui/react-label";
 import { Loader2, FileUp, TreeDeciduous } from "lucide-react";
 import { Input } from "./ui/input";
+import { TreeMenu } from "./tree-menu";
 
 export function AppSidebar() {
   const trees = useProllyStore((s) => s.trees);
@@ -118,17 +119,22 @@ export function AppSidebar() {
             .sort((a, b) => a[1].path.localeCompare(b[1].path))
             .map(([id, tree]) => (
               <SidebarMenuItem key={id}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === `/${id}`}
-                >
-                  <Link to={`/${tree.path}`}>
-                    <span className="text-xs text-overflow-ellipsis overflow-hidden font-mono">
-                      {tree.path.replace(/\.prly$/, "")}
-                    </span>
-                    {tree.rootHash !== tree.lastSavedRootHash && "*"}
-                  </Link>
-                </SidebarMenuButton>
+                <div className="flex flex-row">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname === `/${id}`}
+                  >
+                    <Link to={`/${tree.path}`} className="flex justify-between">
+                      <span className="text-xs text-overflow-ellipsis overflow-hidden font-mono">
+                        {tree.path.replace(/\.prly$/, "")}
+                      </span>
+                      {tree.rootHash !== tree.lastSavedRootHash && "*"}
+                    </Link>
+                  </SidebarMenuButton>
+                  <div className="flex justify-end">
+                    <TreeMenu prly={tree} treePath={tree.path} />
+                  </div>
+                </div>
               </SidebarMenuItem>
             ))}
         </SidebarGroup>
