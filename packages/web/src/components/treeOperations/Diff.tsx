@@ -3,8 +3,7 @@ import React, { useState } from "react";
 import { type DiffEntry, type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
+import { Loader2, GitCompareArrows } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { hexToU8, u8ToString } from "@/lib/prollyUtils";
 import { toast } from "sonner";
@@ -13,14 +12,14 @@ import { ScrollArea } from "@radix-ui/react-scroll-area";
 
 interface DiffProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }
 interface StringDiffEntry {
   key: string;
   left: string | undefined;
   right: string | undefined;
 }
-export const DiffComponent: React.FC<DiffProps> = ({ tree, treeId }) => {
+export const DiffComponent: React.FC<DiffProps> = ({ tree, treePath }) => {
   const [diffHash1, setDiffHash1] = useState("");
   const [diffHash2, setDiffHash2] = useState("");
 
@@ -43,10 +42,10 @@ export const DiffComponent: React.FC<DiffProps> = ({ tree, treeId }) => {
           right: entry.rightValue ? u8ToString(entry.rightValue) : undefined,
         })
       );
-      return { treeId: treeId, diffResult: formattedDiffs };
+      return { treePath: treePath, diffResult: formattedDiffs };
     },
     onSuccess: (data) => {
-      useProllyStore.getState().treeUpdated(treeId);
+      useProllyStore.getState().treeUpdated(treePath);
       toast.success(
         `Diff computed with ${data.diffResult.length} differences.`
       );
@@ -55,7 +54,7 @@ export const DiffComponent: React.FC<DiffProps> = ({ tree, treeId }) => {
     onError: (error: Error) => {
       useProllyStore
         .getState()
-        .treeError(treeId, `Diff failed: ${error.message}`);
+        .treeError(treePath, `Diff failed: ${error.message}`);
       toast.error(`Diff failed: ${error.message}`);
     },
   });

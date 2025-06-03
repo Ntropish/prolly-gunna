@@ -1,34 +1,41 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
-  // QueryClient, // Not needed directly in this component
-  // QueryClientProvider, // Setup in App.tsx
-  useQuery,
   useInfiniteQuery,
   type InfiniteData,
-  useMutation, // Import InfiniteData
+  useQuery,
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type WasmProllyTree } from "prolly-wasm";
-import { u8ToString, toU8, triggerBrowserDownload } from "@/lib/prollyUtils";
+import { u8ToString, toU8 } from "@/lib/prollyUtils";
 import {
   Loader2,
   XCircle,
   Search,
   ArrowRightToLine,
   MoveHorizontal,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { ScanArgsWasm, ScanPageWasm } from "@/lib/types";
-import { Download } from "lucide-react";
+import type { ScanArgsWasm } from "@/lib/types";
 
 import { useDebounce } from "use-debounce";
 import { getPrefixScanEndBound } from "@/lib/utils/getPrefixScanEndBound";
 import { Tabs, TabsList, TabsTrigger } from "@radix-ui/react-tabs";
 import { useDownloadScanMutation } from "./hooks/useDownloadScanMutation";
+
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 // --- Interfaces ---
 interface Item {
@@ -59,14 +66,13 @@ interface ScanEntriesProps {
   treePath: string;
   currentRoot: string | null;
   height?: string;
-  itemHeight?: number;
+  itemHeight?: number; // Used for estimateSize
 }
 
-// Type for the query key used by useInfiniteQuery and useQuery for items/counts
 type ItemsQuery_QueryKey = readonly [
-  string, // Base key, e.g., 'items' or 'filteredItemCount'
-  string | null, // currentRoot
-  Omit<ScanArgs, "offset" | "limit"> // appliedScanArgs
+  string,
+  string | null,
+  Omit<ScanArgsWasm, "offset" | "limit">
 ];
 
 const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
@@ -78,27 +84,30 @@ const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
 };
 
 const ITEMS_PER_PAGE = 50;
+const DEFAULT_ITEM_HEIGHT = 60; // Estimate, actual height will be measured
+const KEY_COLUMN_WIDTH_PX = 250;
+const VALUE_COLUMN_MIN_WIDTH_PX = 200;
 
 export const ScanEntries: React.FC<ScanEntriesProps> = ({
   tree,
   treePath,
   currentRoot,
   height = "400px",
-  itemHeight = 60,
+  itemHeight = DEFAULT_ITEM_HEIGHT,
 }) => {
   const [scanMode, setScanMode] = useState<"range" | "prefix">("prefix");
 
-  // --- Canonical Scan Parameters ---
   const [trueStartBound, setTrueStartBound] = useState<Uint8Array | null>(null);
   const [trueEndBound, setTrueEndBound] = useState<Uint8Array | null>(null);
   const [trueStartInclusive, setTrueStartInclusive] = useState<boolean>(true);
   const [trueEndInclusive, setTrueEndInclusive] = useState<boolean>(false);
 
-  // --- Debounced Canonical Scan Parameters for React Query ---
   const [debouncedTrueStartBound] = useDebounce(trueStartBound, 500);
   const [debouncedTrueEndBound] = useDebounce(trueEndBound, 500);
   const [debouncedTrueStartInclusive] = useDebounce(trueStartInclusive, 500);
   const [debouncedTrueEndInclusive] = useDebounce(trueEndInclusive, 500);
+
+  const [keyColumnWidth, setKeyColumnWidth] = useState(KEY_COLUMN_WIDTH_PX);
 
   const appliedScanArgs = useMemo<Omit<ScanArgsWasm, "offset" | "limit">>(
     () => ({
@@ -117,7 +126,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
 
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // --- Query for Unfiltered Total Item Count ---
   const { data: unfilteredTotalItems, isLoading: isLoadingUnfilteredCount } =
     useQuery<number, Error, number, readonly (string | null)[]>({
       queryKey: ["unfilteredTotalCount", currentRoot],
@@ -129,7 +137,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       staleTime: Infinity,
     });
 
-  // --- Query for Filtered Item Count ---
   const { data: filteredTotalItems, isLoading: isLoadingFilteredCount } =
     useQuery<number, Error, number, ItemsQuery_QueryKey>({
       queryKey: ["filteredItemCount", currentRoot, appliedScanArgs],
@@ -141,7 +148,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
         let count = 0;
         let currentOffset = 0;
         const batchSizeForCount = 1000;
-        // eslint-disable-next-line no-constant-condition
         while (true) {
           try {
             const page = await (tree.scanItems({
@@ -165,9 +171,8 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       enabled: !!tree && !isLoadingUnfilteredCount,
     });
 
-  // --- Infinite Query for Fetching Items ---
   const {
-    data: infiniteQueryData, // Type: InfiniteData<ScanPage, number> | undefined
+    data: infiniteQueryData,
     fetchNextPage,
     hasNextPage: RqHasNextPage,
     isFetchingNextPage,
@@ -175,11 +180,11 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
     isError: isItemsError,
     error: itemsError,
   } = useInfiniteQuery<
-    ScanPage, // TQueryFnData
-    Error, // TError
-    InfiniteData<ScanPage, number>, // TData (explicitly what `data` will be)
-    ItemsQuery_QueryKey, // TQueryKey
-    number // TPageParam
+    ScanPage,
+    Error,
+    InfiniteData<ScanPage, number>,
+    ItemsQuery_QueryKey,
+    number
   >({
     queryKey: ["tree", currentRoot, appliedScanArgs],
     queryFn: async ({ pageParam = 0 }) => {
@@ -193,10 +198,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
-      // lastPage is ScanPage, allPages is ScanPage[]
       if (lastPage.hasNextPage) {
-        // Calculate next offset based on the last page param and items fetched in that page
-        // This assumes lastPage.items.length is accurate for the limit requested
         return lastPageParam + lastPage.items.length;
       }
       return undefined;
@@ -216,21 +218,29 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const rowVirtualizer = useVirtualizer({
     count: filteredTotalItems ?? 0,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => itemHeight,
+    estimateSize: () => itemHeight, // Provided by prop, used as an estimate
     overscan: 5,
+    // No paddingStartIndex or paddingEndIndex needed if we manually apply padding
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
+
+  // Calculate padding for the tbody to simulate the full scroll height
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom =
+    virtualItems.length > 0
+      ? rowVirtualizer.getTotalSize() -
+        virtualItems[virtualItems.length - 1].end
+      : 0;
 
   useEffect(() => {
     if (virtualItems.length === 0 || !RqHasNextPage || isFetchingNextPage) {
       return;
     }
     const lastItem = virtualItems[virtualItems.length - 1];
-    // Fetch when the last visible item is within half a page of the end of loaded data
     if (
       lastItem &&
-      lastItem.index >= allDisplayItems.length - ITEMS_PER_PAGE / 2
+      lastItem.index >= allDisplayItems.length - Math.floor(ITEMS_PER_PAGE / 2)
     ) {
       fetchNextPage();
     }
@@ -258,8 +268,8 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const handleClearFilters = () => {
     setTrueStartBound(null);
     setTrueEndBound(null);
-    setTrueStartInclusive(true); // Default for "scan all"
-    setTrueEndInclusive(false); // Default for "scan all" (or true, depending on desired default)
+    setTrueStartInclusive(true);
+    setTrueEndInclusive(false);
     if (parentRef.current) parentRef.current.scrollTop = 0;
     rowVirtualizer.scrollToOffset(0);
     toast.info("Filters cleared.");
@@ -267,31 +277,16 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
 
   const handleScanModeChange = (newModeValue: string) => {
     const newMode = newModeValue as "range" | "prefix";
-    const oldMode = scanMode; // Capture the mode before it's updated
-
-    // Set the scanMode first, so UI can potentially react if needed,
-    // though for this logic, oldMode is key.
+    const oldMode = scanMode;
     setScanMode(newMode);
 
     if (newMode === "prefix" && oldMode === "range") {
-      // --- Transitioning from Range mode TO Prefix mode ---
-      // The current 'trueStartBound' will become the prefix.
-      // We must update the other canonical parameters to define a valid prefix scan
-      // based on this trueStartBound.
       if (trueStartBound) {
-        // If there's an existing start bound, use it as the prefix
         const prefixEndBound = getPrefixScanEndBound(trueStartBound);
-
-        // Update canonical state for a prefix definition
-        // No need to setTrueStartBound, it's already our prefix base
         setTrueStartInclusive(true);
         setTrueEndBound(prefixEndBound === undefined ? null : prefixEndBound);
         setTrueEndInclusive(false);
       } else {
-        // If trueStartBound is null (e.g., filters were cleared, or range was like (null, "someEndKey")),
-        // an empty/null prefix means "scan all".
-        // This aligns with how handlePrefixInputChange treats an empty input.
-        // setTrueStartBound(null); // Already null
         setTrueStartInclusive(true);
         setTrueEndBound(null);
         setTrueEndInclusive(false);
@@ -299,22 +294,18 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
     }
   };
 
-  // --- Event Handlers for UI inputs to update Canonical State ---
   const handlePrefixInputChange = (value: string) => {
     const trimmedValue = value.trim();
     if (!trimmedValue) {
-      // Empty prefix: scan all
       setTrueStartBound(null);
       setTrueStartInclusive(true);
       setTrueEndBound(null);
       setTrueEndInclusive(false);
     } else {
       const newPrefixU8 = toU8(trimmedValue);
-      const calculatedEndBound = getPrefixScanEndBound(newPrefixU8); // Store in a variable
-
+      const calculatedEndBound = getPrefixScanEndBound(newPrefixU8);
       setTrueStartBound(newPrefixU8);
       setTrueStartInclusive(true);
-      // Correctly handle potential undefined from getPrefixScanEndBound
       setTrueEndBound(
         calculatedEndBound === undefined ? null : calculatedEndBound
       );
@@ -336,6 +327,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
 
   const renderContent = () => {
+    // ... (Loading states, error states, no data states - these remain largely the same)
     if (
       isLoadingUnfilteredCount ||
       (isLoadingFilteredCount &&
@@ -429,126 +421,143 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
         <div
           ref={parentRef}
           style={{
-            height,
-            overflowY: "auto",
             border: "1px solid hsl(var(--border))",
             borderRadius: "var(--radius-md)",
           }}
-          className="bg-muted/20 dark:bg-muted/10 relative"
+          className="bg-muted/20 dark:bg-muted/10 pb-4 flex-1 overflow-hidden min-h-0 flex flex-col" // Removed relative, not needed for this approach
         >
           {(isFetchingNextPage ||
             (isLoadingItems &&
               allDisplayItems.length === 0 &&
               (filteredTotalItems ?? 0) > 0)) && (
-            <div className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-background/80 backdrop-blur-sm p-2 rounded-md shadow-lg text-xs flex items-center">
+            <div className="sticky top-2 left-1/2 -translate-x-1/2 z-20 bg-background/80 backdrop-blur-sm p-2 rounded-md shadow-lg text-xs flex items-center">
               <Loader2 className="h-4 w-4 animate-spin inline-block mr-1" />
               Loading...
             </div>
           )}
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
+          <Table
+            style={{ position: "relative", borderCollapse: "collapse" }}
+            className="h-full"
           >
-            {virtualItems.map((virtualRow) => {
-              const item = allDisplayItems[virtualRow.index];
-              return (
-                <div
-                  key={virtualRow.key} // Use virtualRow.key for React list key
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                    padding: "10px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    borderBottom: "1px solid hsl(var(--border)/0.3)",
-                  }}
-                  className={
-                    virtualRow.index % 2 === 0
-                      ? "bg-transparent hover:bg-muted/20"
-                      : "bg-muted/10 dark:bg-black/10 hover:bg-muted/30"
-                  }
+            <TableHeader className="z-[1] bg-background shadow-sm">
+              <TableRow>
+                <TableHead
+                  style={{ width: `${keyColumnWidth}px` }}
+                  className="text-xs px-3 py-2 h-auto sticky top-0 left-0 z-[1] bg-background shadow-sm"
                 >
-                  {item ? (
-                    <div className="flex flex-col items-start gap-1 w-full">
-                      <div
-                        className="flex-1 text-right font-mono text-sm truncate text-muted-foreground"
-                        title={item.key}
+                  Key
+                </TableHead>
+                <TableHead
+                  style={{ minWidth: `${VALUE_COLUMN_MIN_WIDTH_PX}px` }}
+                  className="text-xs px-3 py-2 h-auto sticky top-0 left-0 z-[2] bg-background shadow-sm "
+                >
+                  Value
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            {/* Apply padding to tbody to create space for non-rendered items */}
+            <TableBody
+              style={{
+                paddingTop: `${paddingTop}px`,
+                paddingBottom: `${paddingBottom}px`,
+                // No explicit height or width: "100%" or position: "relative" needed here for padding method
+              }}
+            >
+              {virtualItems.map((virtualRow) => {
+                const item = allDisplayItems[virtualRow.index];
+                // Each TableRow is rendered directly, not absolutely positioned
+                return (
+                  <TableRow
+                    key={virtualRow.key}
+                    ref={rowVirtualizer.measureElement} // Critical for dynamic height measurement
+                    data-index={virtualRow.index}
+                    // No position, transform, or explicit height from virtualRow.size here.
+                    // estimateSize gives initial height, measureElement refines it.
+                    // Row height is determined by its content or specific CSS on TableRow/TableCell.
+                    className={cn(
+                      virtualRow.index % 2 === 0
+                        ? "hover:bg-muted/20"
+                        : "bg-muted/10 dark:bg-black/10 hover:bg-muted/30"
+                    )}
+                  >
+                    {item ? (
+                      <>
+                        <TableCell
+                          // Width is implicitly handled by table-layout:fixed and TableHead
+                          className="font-mono text-sm text-muted-foreground py-2.5 px-3 align-top" // align-top for consistency if values wrap
+                          title={item.key}
+                        >
+                          <span className="block w-full break-all">
+                            {item.key}
+                          </span>{" "}
+                          {/* break-all for long keys */}
+                        </TableCell>
+                        <TableCell
+                          className="font-mono text-sm py-2.5 px-3 align-top"
+                          title={item.value}
+                        >
+                          {/* Allow value to wrap, remove truncate if wrapping is preferred */}
+                          <span className="block w-full truncate break-words">
+                            {item.value}
+                          </span>
+                        </TableCell>
+                      </>
+                    ) : (
+                      // Placeholder for rows where data might still be loading (though less common with this RQ setup)
+                      // or if an item is somehow null/undefined in allDisplayItems
+                      <TableCell
+                        colSpan={2}
+                        className="text-xs text-muted-foreground/70 h-full text-center py-2.5 px-3"
+                        style={{ height: `${itemHeight}px` }} // Give placeholder a height
                       >
-                        {item.key}
-                      </div>
-                      <div
-                        // full width, text wrap
-                        className="flex-1 text-left font-mono text-sm truncate w-full"
-                        title={item.value}
-                      >
-                        {item.value}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground/70 w-full text-center h-full flex items-center justify-center">
-                      {/* This row is virtualized but data not yet loaded by useInfiniteQuery */}
-                      &nbsp;
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="text-right text-xs text-muted-foreground pt-1 pr-1">
-          {(filteredTotalItems ?? 0).toLocaleString()}
-          {unfilteredTotalItems !== undefined &&
-            ` / ${unfilteredTotalItems.toLocaleString()}`}
+                        &nbsp;
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       </>
     );
   };
 
   return (
-    <div className="flex flex-col space-y-3">
-      <div className="p-4 shadow-sm space-y-4">
+    <div className="flex flex-col space-y-3 h-full min-h-0 pb-2 overflow-auto">
+      <div className="p-4 shadow-sm space-y-4 border rounded-lg bg-card">
+        {/* ... (Filter controls remain the same) ... */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-          <h3 className="text-md  whitespace-nowrap text-muted-foreground">
-            Scan
+          <h3 className="text-md whitespace-nowrap text-muted-foreground font-medium">
+            Scan Entries
           </h3>
           <Tabs
             value={scanMode}
-            onValueChange={handleScanModeChange} // Use the new handler
-            className="w-[20rem]"
+            onValueChange={handleScanModeChange}
+            className="w-full sm:w-[20rem]"
           >
-            <TabsList className="h-9">
+            <TabsList className="h-9 grid w-full grid-cols-2">
               <TabsTrigger
                 value="prefix"
-                className="text-xs data-[state=active]:bg-primary/10 rounded-md"
+                className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
               >
-                <div className="flex items-center mr-1 px-2 py-2">
-                  <ArrowRightToLine className="mr-1.5 h-4 w-4" />
+                <div className="flex items-center justify-center mr-1 px-2 py-1.5">
+                  <ArrowRightToLine className="mr-1.5 h-3.5 w-3.5" />
                   Prefix
                 </div>
               </TabsTrigger>
-
               <TabsTrigger
                 value="range"
-                className="text-xs data-[state=active]:bg-primary/10 rounded-md"
+                className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
               >
-                <div className="flex items-center mr-1 px-2 py-2">
-                  <MoveHorizontal className="mr-1.5 h-4 w-4" />
+                <div className="flex items-center justify-center mr-1 px-2 py-1.5">
+                  <MoveHorizontal className="mr-1.5 h-3.5 w-3.5" />
                   Range
                 </div>
               </TabsTrigger>
             </TabsList>
           </Tabs>
-
-          <div className="flex items-end gap-2 pt-2 justify-end">
+          <div className="flex items-center gap-2 pt-2 justify-end w-full sm:w-auto">
             <Button
               onClick={handleClearFilters}
               size="sm"
@@ -587,6 +596,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
               )}
               Download
             </Button>
+            <div className="text-right text-xs text-muted-foreground pt-1 pr-1">
+              {(filteredTotalItems ?? 0).toLocaleString()}
+              {unfilteredTotalItems !== undefined &&
+                unfilteredTotalItems !== (filteredTotalItems ?? 0) &&
+                ` / ${unfilteredTotalItems.toLocaleString()}`}
+            </div>
           </div>
         </div>
 
@@ -600,7 +615,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                 <Input
                   id="startKey"
                   type="text"
-                  placeholder="Enter start key"
+                  placeholder="Enter start key (optional)"
                   value={trueStartBound ? u8ToString(trueStartBound) : ""}
                   onChange={(e) => handleRangeStartKeyChange(e.target.value)}
                   className="h-9 text-sm"
@@ -628,7 +643,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                 <Input
                   id="endKey"
                   type="text"
-                  placeholder="Enter end key"
+                  placeholder="Enter end key (optional)"
                   value={trueEndBound ? u8ToString(trueEndBound) : ""}
                   onChange={(e) => handleRangeEndKeyChange(e.target.value)}
                   className="h-9 text-sm"
@@ -659,8 +674,8 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             <Input
               id="prefixKey"
               type="text"
-              placeholder="Enter prefix"
-              value={trueStartBound ? u8ToString(trueStartBound) : ""} // Prefix input shows the current trueStartBound
+              placeholder="Enter prefix (optional, scans all if empty)"
+              value={trueStartBound ? u8ToString(trueStartBound) : ""}
               onChange={(e) => handlePrefixInputChange(e.target.value)}
               className="h-9 text-sm"
             />

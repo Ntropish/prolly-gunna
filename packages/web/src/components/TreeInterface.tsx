@@ -25,61 +25,16 @@ import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader";
 
 import { useProllyStore, type ProllyTree } from "@/useProllyStore";
 import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
-import { triggerBrowserDownload } from "@/lib/prollyUtils";
-import { toast } from "sonner";
-import { useMutation } from "@tanstack/react-query";
+
 import { ProllyFilePanel } from "./treeOperations/FilePanel";
 // import { RenameDialog } from "./treeOperations/RenameDialog";
-import {
-  adjectives,
-  animals,
-  uniqueNamesGenerator,
-} from "unique-names-generator";
+
 interface TreeInterfaceProps {
   treeState: ProllyTree;
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
   const trees = useProllyStore((state) => state.trees);
-  const saveTreeMutation = useMutation({
-    mutationFn: async (args: { description?: string }) => {
-      const currentTreeState = trees[treeState.path];
-      if (!currentTreeState) {
-        throw new Error(
-          `Tree with ID "${args.treeId}" not found in app state.`
-        );
-      }
-
-      const fileBytesU8 = await currentTreeState.tree.saveTreeToFileBytes(
-        args.description || undefined
-      );
-
-      if (!fileBytesU8 || fileBytesU8.length === 0) {
-        throw new Error("Wasm module returned empty file data.");
-      }
-
-      return {
-        buffer: fileBytesU8.buffer,
-        filename:
-          treeState.path ||
-          `${uniqueNamesGenerator({
-            dictionaries: [adjectives, animals],
-            separator: "-",
-            length: 2,
-          })}.prly`,
-      };
-    },
-    onSuccess: (data: { buffer: ArrayBuffer; filename: string }) => {
-      triggerBrowserDownload(data.buffer, data.filename);
-      toast.success("Tree saved to file successfully.");
-    },
-    onError: (error: Error) => {
-      console.error("Save tree to file failed:", error);
-      toast.error(
-        `Save tree failed: ${error.message || "Wasm error during save"}`
-      );
-    },
-  });
 
   const handleSave = () => {
     useProllyStore.getState().saveTree(treeState.path);
@@ -94,7 +49,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
   const defaultTab = "scan";
 
   return (
-    <Card className="w-full shadow-lg border">
+    <Card className="w-full shadow-lg border flex-1 overflow-hidden h-full">
       <CardHeader>
         <CardTitle className="text-xl tracking-tight flex items-center gap-2">
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
@@ -110,8 +65,8 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1 pt-2">
-        <Tabs defaultValue={defaultTab} className="w-full">
+      <CardContent className="space-y-1 pt-2 h-full max-h-full">
+        <Tabs defaultValue={defaultTab} className="w-full h-full max-h-full">
           <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-3 h-24 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="basic">Basic Ops</TabsTrigger>
@@ -122,14 +77,20 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             <TabsTrigger value="gc">GC</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="basic" className="border-t pt-4">
+          <TabsContent
+            value="basic"
+            className="border-t pt-4 min-h-0 flex-1 overflow-hidden min-h-0"
+          >
             <BasicOpsComponent
               tree={treeState.tree}
               treePath={treeState.path}
             />
           </TabsContent>
 
-          <TabsContent value="scan" className="border-t pt-4">
+          <TabsContent
+            value="scan"
+            className="border-t pt-4 min-h-0 flex-1 overflow-hidden min-h-0"
+          >
             {treeState.tree ? (
               <ScanEntries
                 currentRoot={treeState.rootHash}
@@ -177,13 +138,13 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </TabsContent>
 
           <TabsContent value="diff" className="border-t pt-4">
-            <DiffComponent {...commonProps} />
+            <DiffComponent tree={treeState.tree} treePath={treeState.path} />
           </TabsContent>
 
           <TabsContent value="gc" className="border-t pt-4">
             <GarbageCollectionComponent
               tree={treeState.tree}
-              treeId={treeState.id}
+              treePath={treeState.path}
             />
           </TabsContent>
         </Tabs>

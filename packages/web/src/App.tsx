@@ -44,7 +44,7 @@ export default function App() {
   }, [trees, treeId]);
 
   return (
-    <div className="container mx-auto p-2 sm:p-1 space-y-1 min-h-screen">
+    <div className="container mx-auto p-2 sm:p-1 space-y-1 h-screen overflow-hidden flex flex-col">
       <Toaster richColors />
 
       {/* HEADER */}
@@ -57,7 +57,9 @@ export default function App() {
         </div>
       </header>
 
-      {tree && <TreeInterface treeState={tree} />}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {tree && <TreeInterface treeState={tree} />}
+      </div>
     </div>
   );
 }

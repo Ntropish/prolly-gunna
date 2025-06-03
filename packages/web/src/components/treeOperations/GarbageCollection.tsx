@@ -1,10 +1,9 @@
 // src/components/treeOperations/AdvancedOps.tsx
 import React, { useState } from "react";
-import { type DiffEntry, type WasmProllyTree } from "prolly-wasm";
+import { type WasmProllyTree } from "prolly-wasm";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, GitCompareArrows, Eraser } from "lucide-react";
+import { Loader2, Eraser } from "lucide-react";
 import { hexToU8 } from "@/lib/prollyUtils";
 import { u8ToHex } from "@/lib/prollyUtils";
 import { useMutation } from "@tanstack/react-query";
@@ -13,7 +12,7 @@ import { useProllyStore } from "@/useProllyStore";
 
 interface GarbageCollectionProps {
   tree: WasmProllyTree;
-  treeId: string;
+  treePath: string;
 }
 
 // We also need exportChunks logic here for the onSuccess
@@ -28,7 +27,7 @@ const exportChunksForGC = async (tree: WasmProllyTree) => {
 
 export const GarbageCollectionComponent: React.FC<GarbageCollectionProps> = ({
   tree,
-  treeId,
+  treePath,
 }) => {
   const [gcLiveHashes, setGcLiveHashes] = useState("");
 
@@ -52,15 +51,15 @@ export const GarbageCollectionComponent: React.FC<GarbageCollectionProps> = ({
       };
     },
     onSuccess: (data) => {
-      useProllyStore.getState().treeUpdated(treeId);
+      useProllyStore.getState().treeUpdated(treePath);
       toast.success(
         `${data.gcCollectedCount} chunk(s) collected by GC. Chunk list refreshed.`
       );
     },
-    onError: (error: Error, variables) => {
+    onError: (error: Error) => {
       useProllyStore
         .getState()
-        .treeError(treeId, `GC failed: ${error.message}`);
+        .treeError(treePath, `GC failed: ${error.message}`);
       toast.error(`GC failed: ${error.message}`);
     },
   });
