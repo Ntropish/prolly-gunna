@@ -54,7 +54,7 @@ interface ScanPage {
   previousPageCursor?: Uint8Array | null;
 }
 
-interface VirtualizedTreeItemsProps {
+interface ScanEntriesProps {
   tree: WasmProllyTree | null;
   treePath: string;
   currentRoot: string | null;
@@ -79,8 +79,7 @@ const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
 
 const ITEMS_PER_PAGE = 50;
 
-// --- Main Component ---
-export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
+export const ScanEntries: React.FC<ScanEntriesProps> = ({
   tree,
   treePath,
   currentRoot,
@@ -516,22 +515,22 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
 
   return (
     <div className="flex flex-col space-y-3">
-      <div className="p-4 border bg-card rounded-lg shadow-sm space-y-4">
+      <div className="p-4 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-          <h3 className="text-md font-semibold whitespace-nowrap">
-            Scan Parameters
+          <h3 className="text-md  whitespace-nowrap text-muted-foreground">
+            Scan
           </h3>
           <Tabs
             value={scanMode}
             onValueChange={handleScanModeChange} // Use the new handler
-            className="w-full sm:w-auto"
+            className="w-[20rem]"
           >
             <TabsList className="h-9">
               <TabsTrigger
                 value="prefix"
-                className="text-xs data-[state=active]:shadow-md"
+                className="text-xs data-[state=active]:bg-primary/10 rounded-md"
               >
-                <div className="flex items-center mr-3 px-3 py-2">
+                <div className="flex items-center mr-1 px-2 py-2">
                   <ArrowRightToLine className="mr-1.5 h-4 w-4" />
                   Prefix
                 </div>
@@ -539,15 +538,56 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
 
               <TabsTrigger
                 value="range"
-                className="text-xs data-[state=active]:shadow-md"
+                className="text-xs data-[state=active]:bg-primary/10 rounded-md"
               >
-                <div className="flex items-center mr-3 px-3 py-2">
+                <div className="flex items-center mr-1 px-2 py-2">
                   <MoveHorizontal className="mr-1.5 h-4 w-4" />
                   Range
                 </div>
               </TabsTrigger>
             </TabsList>
           </Tabs>
+
+          <div className="flex items-end gap-2 pt-2 justify-end">
+            <Button
+              onClick={handleClearFilters}
+              size="sm"
+              variant="outline"
+              className="h-9"
+              disabled={
+                isLoadingFilteredCount ||
+                isLoadingItems ||
+                isLoadingUnfilteredCount ||
+                downloadScanMutation.isPending
+              }
+            >
+              <XCircle className="mr-2 h-4 w-4" /> Clear
+            </Button>
+            <Button
+              onClick={handleDownloadScan}
+              size="sm"
+              variant="outline"
+              className="h-9"
+              disabled={
+                downloadScanMutation.isPending ||
+                isLoadingItems ||
+                isLoadingFilteredCount ||
+                (filteredTotalItems ?? 0) === 0
+              }
+              title={
+                (filteredTotalItems ?? 0) === 0
+                  ? "No items in current scan to download"
+                  : "Download current scan results as JSONL"
+              }
+            >
+              {downloadScanMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download
+            </Button>
+          </div>
         </div>
 
         {scanMode === "range" && (
@@ -556,15 +596,15 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
               <Label htmlFor="startKey" className="text-xs font-medium">
                 Start Key
               </Label>
-              <Input
-                id="startKey"
-                type="text"
-                placeholder="Enter start key"
-                value={trueStartBound ? u8ToString(trueStartBound) : ""}
-                onChange={(e) => handleRangeStartKeyChange(e.target.value)}
-                className="h-9 text-sm"
-              />
               <div className="flex items-center space-x-2 pt-1">
+                <Input
+                  id="startKey"
+                  type="text"
+                  placeholder="Enter start key"
+                  value={trueStartBound ? u8ToString(trueStartBound) : ""}
+                  onChange={(e) => handleRangeStartKeyChange(e.target.value)}
+                  className="h-9 text-sm"
+                />
                 <Checkbox
                   id="startInclusive"
                   checked={trueStartInclusive}
@@ -584,15 +624,15 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
               <Label htmlFor="endKey" className="text-xs font-medium">
                 End Key
               </Label>
-              <Input
-                id="endKey"
-                type="text"
-                placeholder="Enter end key"
-                value={trueEndBound ? u8ToString(trueEndBound) : ""}
-                onChange={(e) => handleRangeEndKeyChange(e.target.value)}
-                className="h-9 text-sm"
-              />
               <div className="flex items-center space-x-2 pt-1">
+                <Input
+                  id="endKey"
+                  type="text"
+                  placeholder="Enter end key"
+                  value={trueEndBound ? u8ToString(trueEndBound) : ""}
+                  onChange={(e) => handleRangeEndKeyChange(e.target.value)}
+                  className="h-9 text-sm"
+                />
                 <Checkbox
                   id="endInclusive"
                   checked={trueEndInclusive}
@@ -626,47 +666,6 @@ export const VirtualizedTreeItems: React.FC<VirtualizedTreeItemsProps> = ({
             />
           </div>
         )}
-
-        <div className="flex items-end gap-2 pt-2 justify-end">
-          <Button
-            onClick={handleClearFilters}
-            size="sm"
-            variant="outline"
-            className="h-9"
-            disabled={
-              isLoadingFilteredCount ||
-              isLoadingItems ||
-              isLoadingUnfilteredCount ||
-              downloadScanMutation.isPending
-            }
-          >
-            <XCircle className="mr-2 h-4 w-4" /> Clear Filters
-          </Button>
-          <Button
-            onClick={handleDownloadScan}
-            size="sm"
-            variant="outline"
-            className="h-9"
-            disabled={
-              downloadScanMutation.isPending ||
-              isLoadingItems ||
-              isLoadingFilteredCount ||
-              (filteredTotalItems ?? 0) === 0
-            }
-            title={
-              (filteredTotalItems ?? 0) === 0
-                ? "No items in current scan to download"
-                : "Download current scan results as JSONL"
-            }
-          >
-            {downloadScanMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            Download Scan
-          </Button>
-        </div>
       </div>
       {renderContent()}
     </div>

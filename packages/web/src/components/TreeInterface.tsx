@@ -18,7 +18,7 @@ import { BasicOpsComponent } from "./treeOperations/BasicOps";
 // DataExplorerComponent was marked as .old, assuming it's not primary for this refactor
 // import { DataExplorerComponent } from "./treeOperations/DataExplorer.old";
 import { AdvancedOpsComponent, DiffComponent } from "./treeOperations/Diff";
-import { VirtualizedTreeItems } from "./treeOperations/VirtualizedTreeItems";
+import { ScanEntries } from "./treeOperations/ScanEntries";
 import { VirtualizedHierarchyScan } from "./treeOperations/VirtualizedHierarchyScan";
 import { JsonlBatchArea } from "./treeOperations/JsonlBatchArea";
 import { JsonlFileLoaderComponent } from "./treeOperations/JsonlFileLoader";
@@ -128,7 +128,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
 
           <TabsContent value="scan" className="border-t pt-4">
             {treeState.tree ? (
-              <VirtualizedTreeItems
+              <ScanEntries
                 currentRoot={treeState.rootHash}
                 tree={treeState.tree as WasmProllyTree}
                 treePath={treeState.path}
