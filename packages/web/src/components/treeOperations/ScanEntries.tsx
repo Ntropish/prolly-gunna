@@ -14,6 +14,8 @@ import {
   ArrowRightToLine,
   MoveHorizontal,
   Download,
+  Copy,
+  Trash,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { useProllyStore } from "@/useProllyStore";
 
 // --- Interfaces ---
 interface Item {
@@ -84,7 +87,7 @@ const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
 };
 
 const ITEMS_PER_PAGE = 50;
-const DEFAULT_ITEM_HEIGHT = 20; // Estimate, actual height will be measured
+const ITEM_HEIGHT = 32; // Estimate, actual height will be measured
 const KEY_COLUMN_WIDTH_PX = 350;
 const VALUE_COLUMN_MIN_WIDTH_PX = 200;
 
@@ -93,7 +96,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   treePath,
   currentRoot,
   height = "400px",
-  itemHeight = DEFAULT_ITEM_HEIGHT,
 }) => {
   const [scanMode, setScanMode] = useState<"range" | "prefix">("prefix");
 
@@ -136,6 +138,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       },
       enabled: !!tree,
       staleTime: Infinity,
+      placeholderData: (prev) => prev,
     });
 
   const { data: filteredTotalItems, isLoading: isLoadingFilteredCount } =
@@ -219,7 +222,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const rowVirtualizer = useVirtualizer({
     count: filteredTotalItems ?? 0,
     getScrollElement: () => tableScrollRef.current,
-    estimateSize: () => 23.3, // Provided by prop, used as an estimate
+    estimateSize: () => ITEM_HEIGHT, // Provided by prop, used as an estimate
     overscan: 5,
     // No paddingStartIndex or paddingEndIndex needed if we manually apply padding
   });
@@ -325,6 +328,20 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
   const handleRangeEndInclusiveChange = (checked: boolean) => {
     setTrueEndInclusive(checked);
+  };
+
+  const handleRowDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // get closest parent with data-row-key attribute
+    const row = (event.target as HTMLElement).closest("[data-row-key]");
+    if (row) {
+      const rowKey = row.getAttribute("data-row-key");
+      console.log(rowKey);
+      if (rowKey) {
+        tree?.delete(toU8(rowKey));
+        toast.success("Item deleted successfully.");
+        useProllyStore.getState().treeUpdated(treePath);
+      }
+    }
   };
 
   const renderContent = () => {
@@ -444,6 +461,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             <TableHeader className="z-[1] bg-background shadow-sm">
               <TableRow className="flex">
                 <TableHead
+                  style={{ flex: `0 0 100px` }}
+                  className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
+                >
+                  Actions
+                </TableHead>
+                <TableHead
                   style={{ flex: `0 0 ${keyColumnWidth}px` }}
                   className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
                 >
@@ -474,6 +497,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                 // Each TableRow is rendered directly, not absolutely positioned
                 return (
                   <TableRow
+                    data-row-key={item?.key}
                     key={virtualRow.key}
                     ref={rowVirtualizer.measureElement} // Critical for dynamic height measurement
                     data-index={virtualRow.index}
@@ -482,7 +506,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                       top: 0,
                       left: 0,
                       width: "100%",
-                      height: `1.5rem`,
+                      height: `${ITEM_HEIGHT}px`,
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                     className={cn(
@@ -494,6 +518,16 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                   >
                     {item ? (
                       <>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRowDelete}
+                            className="h-4 w-4"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                         <TableCell
                           className="font-mono text-sm text-muted-foreground py-1 px-3 align-top overflow-hidden text-ellipsis"
                           title={item.key}
@@ -520,7 +554,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                       <TableCell
                         colSpan={2}
                         className="text-xs text-muted-foreground/70 h-full text-center py-2.5 px-3"
-                        style={{ height: `${itemHeight}px` }} // Give placeholder a height
+                        style={{ height: `${ITEM_HEIGHT}px` }} // Give placeholder a height
                       >
                         &nbsp;
                       </TableCell>
