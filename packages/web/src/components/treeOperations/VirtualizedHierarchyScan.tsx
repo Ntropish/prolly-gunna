@@ -168,22 +168,6 @@ export const VirtualizedHierarchyScan: React.FC<
     enabled: !!tree && currentRoot !== null,
   });
 
-  // allFetchedRawItems, allDisplayItems, estimatedTotalCount, rowVirtualizer, virtualItems, useEffect for fetchNextPage
-  // handleClearFilters, renderItemContent, renderMainContent, and the main return JSX
-  // remain largely the same as in the previous correct version.
-  // Ensure that if appliedScanArgsForQueryKey changes, useInfiniteQuery refetches from page 0.
-  // React Query handles this by default if the queryKey changes.
-
-  // ... (rest of the component: allFetchedRawItems, allDisplayItems, rowVirtualizer, useEffect, handlers, render functions)
-  // The existing logic for these parts should now work correctly with the paginated data.
-  // Make sure the console.logs used for debugging above are removed or conditional.
-
-  // Paste the rest of your component from the previous working version here,
-  // the main changes were in useInfiniteQuery's queryKey, queryFn, initialPageParam, and getNextPageParam.
-  // For brevity, I'm omitting the identical parts. The key changes are above.
-
-  // --- (Pasting the rest of the component structure for completeness, assuming no other changes needed for this fix) ---
-
   const allFetchedRawItems = useMemo(() => {
     return infiniteQueryData?.pages.flatMap((page) => page.items) ?? [];
   }, [infiniteQueryData]);

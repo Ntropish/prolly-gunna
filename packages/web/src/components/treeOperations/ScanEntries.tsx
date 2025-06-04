@@ -424,7 +424,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             border: "1px solid hsl(var(--border))",
             borderRadius: "var(--radius-md)",
           }}
-          className="bg-muted/20 dark:bg-muted/10 pb-4 flex-1 overflow-hidden min-h-0 flex flex-col" // Removed relative, not needed for this approach
+          className="bg-muted/20 dark:bg-muted/10 flex-1 overflow-hidden min-h-0 flex flex-col" // Removed relative, not needed for this approach
         >
           {(isFetchingNextPage ||
             (isLoadingItems &&
@@ -484,7 +484,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                       <>
                         <TableCell
                           // Width is implicitly handled by table-layout:fixed and TableHead
-                          className="font-mono text-sm text-muted-foreground py-2.5 px-3 align-top" // align-top for consistency if values wrap
+                          className="font-mono text-sm text-muted-foreground py-1 px-3 align-top" // align-top for consistency if values wrap
                           title={item.key}
                         >
                           <span className="block w-full break-all">
@@ -493,7 +493,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                           {/* break-all for long keys */}
                         </TableCell>
                         <TableCell
-                          className="font-mono text-sm py-2.5 px-3 align-top"
+                          className="font-mono text-sm py-1 px-3 align-top"
                           title={item.value}
                         >
                           {/* Allow value to wrap, remove truncate if wrapping is preferred */}
@@ -524,7 +524,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
 
   return (
-    <div className="flex flex-col space-y-3 h-full min-h-0 pb-2 overflow-auto">
+    <div className="flex flex-col space-y-3 h-full min-h-0 overflow-auto">
       <div className="p-4 shadow-sm space-y-4 border rounded-lg bg-card">
         {/* ... (Filter controls remain the same) ... */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">

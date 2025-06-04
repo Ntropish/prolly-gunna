@@ -49,7 +49,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
   const defaultTab = "scan";
 
   return (
-    <Card className="w-full shadow-lg border flex-1 overflow-hidden h-full">
+    <Card className="w-full shadow-lg border flex-1 overflow-hidden h-full p-1">
       <CardHeader>
         <CardTitle className="text-xl tracking-tight flex items-center gap-2">
           <span className="font-mono text-base bg-muted px-2 py-1 rounded">
@@ -65,7 +65,7 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1 pt-2 h-full min-h-0 flex flex-col">
+      <CardContent className="space-y-1 pt-2 h-full min-h-0 flex flex-col p-1">
         <Tabs
           defaultValue={defaultTab}
           className="w-full min-h-0 flex flex-col"
