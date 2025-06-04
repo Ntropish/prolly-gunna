@@ -118,3 +118,51 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* // Dark Mode Scrollbar */
+
+/* For WebKit-based browsers (Chrome, Safari, Edge) */
+html.light ::-webkit-scrollbar {
+  width: 12px; /* Width of the scrollbar */
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #f1f1f1; /* Color of the scrollbar track */
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #c1c1c1; /* Color of the scrollbar thumb */
+  border-radius: 6px; /* Roundness of the scrollbar thumb */
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8; /* Color of the scrollbar thumb on hover */
+}
+
+html.dark ::-webkit-scrollbar {
+  width: 12px;
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: #2c2c2c; /* Darker track for dark mode */
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #555; /* Darker thumb for dark mode */
+  border-radius: 6px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #777; /* Lighter thumb on hover for dark mode */
+}
+
+/* For Firefox */
+html.light {
+  scrollbar-width: thin; /* Or "auto" or "none" */
+  scrollbar-color: #c1c1c1 #f1f1f1; /* thumb color track color */
+}
+
+html.dark {
+  scrollbar-width: thin;
+  scrollbar-color: #555 #2c2c2c;
+}
