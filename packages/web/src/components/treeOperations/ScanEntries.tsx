@@ -495,18 +495,14 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                     {item ? (
                       <>
                         <TableCell
-                          // Width is implicitly handled by table-layout:fixed and TableHead
-                          className="font-mono text-sm text-muted-foreground py-1 px-3 align-top overflow-hidden text-ellipsis" // align-top for consistency if values wrap
+                          className="font-mono text-sm text-muted-foreground py-1 px-3 align-top overflow-hidden text-ellipsis"
                           title={item.key}
                           style={{
                             flex: `0 0 ${keyColumnWidth}px`,
                             width: `${keyColumnWidth}px`,
                           }}
                         >
-                          <span className="block w-full break-all">
-                            {item.key}
-                          </span>{" "}
-                          {/* break-all for long keys */}
+                          {item.key}
                         </TableCell>
                         <TableCell
                           className="font-mono text-sm py-1 px-3 align-top text-ellipsis overflow-hidden"
@@ -515,10 +511,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                           }}
                           title={item.value}
                         >
-                          {/* Allow value to wrap, remove truncate if wrapping is preferred */}
-                          <span className="block w-full truncate break-words">
-                            {item.value}
-                          </span>
+                          {item.value}
                         </TableCell>
                       </>
                     ) : (
