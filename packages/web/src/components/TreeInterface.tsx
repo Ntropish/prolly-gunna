@@ -65,9 +65,12 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1 pt-2 h-full max-h-full">
-        <Tabs defaultValue={defaultTab} className="w-full h-full max-h-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4 grid-rows-3 h-24 ">
+      <CardContent className="space-y-1 pt-2 h-full min-h-0 flex flex-col">
+        <Tabs
+          defaultValue={defaultTab}
+          className="w-full min-h-0 flex flex-col"
+        >
+          <TabsList className="grid w-full grid-cols-3 mb-2 grid-rows-3 h-24 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="basic">Basic Ops</TabsTrigger>
             <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
