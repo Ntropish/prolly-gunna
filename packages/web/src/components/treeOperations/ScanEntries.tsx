@@ -461,7 +461,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             <TableHeader className="z-[1] bg-background shadow-sm">
               <TableRow className="flex">
                 <TableHead
-                  style={{ flex: `0 0 100px` }}
+                  style={{ flex: `0 0 60px` }}
                   className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
                 >
                   Actions
@@ -518,12 +518,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                   >
                     {item ? (
                       <>
-                        <TableCell>
+                        <TableCell className="w-[60px]">
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={handleRowDelete}
-                            className="h-4 w-4"
+                            className="h-4 w-4 cursor-pointer hover:text-destructive rounded-md"
                           >
                             <Trash className="h-4 w-4" />
                           </Button>
