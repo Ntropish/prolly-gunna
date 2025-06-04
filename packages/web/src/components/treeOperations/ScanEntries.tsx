@@ -38,8 +38,12 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { useProllyStore } from "@/useProllyStore";
-
+import {
+  useProllyStore,
+  type ProllyTree,
+  type ProllyTree,
+} from "@/useProllyStore";
+import { EntryDialog } from "./EntryDialog";
 // --- Interfaces ---
 interface Item {
   key: string;
@@ -65,7 +69,7 @@ interface ScanPage {
 }
 
 interface ScanEntriesProps {
-  tree: WasmProllyTree | null;
+  prly: ProllyTree | null;
   treePath: string;
   currentRoot: string | null;
   height?: string;
@@ -74,7 +78,9 @@ interface ScanEntriesProps {
 
 type ItemsQuery_QueryKey = readonly [
   string,
-  string | null,
+  string | null, // treePath
+  string | null, // currentRoot
+  "count" | "scan",
   Omit<ScanArgsWasm, "offset" | "limit">
 ];
 
@@ -87,16 +93,15 @@ const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
 };
 
 const ITEMS_PER_PAGE = 50;
-const ITEM_HEIGHT = 32; // Estimate, actual height will be measured
+const ITEM_HEIGHT = 32;
 const KEY_COLUMN_WIDTH_PX = 350;
-const VALUE_COLUMN_MIN_WIDTH_PX = 200;
 
 export const ScanEntries: React.FC<ScanEntriesProps> = ({
-  tree,
+  prly,
   treePath,
   currentRoot,
-  height = "400px",
 }) => {
+  const tree = prly?.tree as WasmProllyTree | null;
   const [scanMode, setScanMode] = useState<"range" | "prefix">("prefix");
 
   const [trueStartBound, setTrueStartBound] = useState<Uint8Array | null>(null);
@@ -110,6 +115,9 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const [debouncedTrueEndInclusive] = useDebounce(trueEndInclusive, 500);
 
   const [keyColumnWidth, setKeyColumnWidth] = useState(KEY_COLUMN_WIDTH_PX);
+  const [openEntryDialogKey, setOpenEntryDialogKey] = useState<string | null>(
+    null
+  );
 
   const appliedScanArgs = useMemo<Omit<ScanArgsWasm, "offset" | "limit">>(
     () => ({
@@ -129,9 +137,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const parentRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLTableElement>(null);
 
+  console.log({
+    key: ["tree", treePath, currentRoot, "count"],
+  });
   const { data: unfilteredTotalItems, isLoading: isLoadingUnfilteredCount } =
     useQuery<number, Error, number, readonly (string | null)[]>({
-      queryKey: ["unfilteredTotalCount", currentRoot],
+      queryKey: ["tree", treePath, currentRoot, "count"],
       queryFn: async () => {
         if (!tree) return 0;
         return tree.countAllItems() as Promise<number>;
@@ -143,7 +154,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
 
   const { data: filteredTotalItems, isLoading: isLoadingFilteredCount } =
     useQuery<number, Error, number, ItemsQuery_QueryKey>({
-      queryKey: ["filteredItemCount", currentRoot, appliedScanArgs],
+      queryKey: ["tree", treePath, currentRoot, "count", appliedScanArgs],
       queryFn: async () => {
         if (!tree) return 0;
         if (!appliedScanArgs.startBound && !appliedScanArgs.endBound) {
@@ -190,7 +201,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
     ItemsQuery_QueryKey,
     number
   >({
-    queryKey: ["tree", currentRoot, appliedScanArgs],
+    queryKey: ["tree", treePath, currentRoot, "scan", appliedScanArgs],
     queryFn: async ({ pageParam = 0 }) => {
       if (!tree) throw new Error("Tree not available for fetching items.");
       const scanArgsWithContext: ScanArgs = {
@@ -345,7 +356,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
 
   const renderContent = () => {
-    // ... (Loading states, error states, no data states - these remain largely the same)
     if (
       isLoadingUnfilteredCount ||
       (isLoadingFilteredCount &&
@@ -353,10 +363,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
         (appliedScanArgs.startBound || appliedScanArgs.endBound))
     ) {
       return (
-        <div
-          className="flex flex-col items-center justify-center p-4"
-          style={{ height }}
-        >
+        <div className="flex flex-col items-center justify-center p-4">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground">
             Loading item counts...
@@ -371,10 +378,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       (filteredTotalItems ?? 0) > 0
     ) {
       return (
-        <div
-          className="flex flex-col items-center justify-center p-4"
-          style={{ height }}
-        >
+        <div className="flex flex-col items-center justify-center p-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
           <p className="text-sm text-muted-foreground">Fetching items...</p>
         </div>
@@ -383,10 +387,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
 
     if (isItemsError) {
       return (
-        <div
-          className="flex flex-col items-center justify-center p-4 text-destructive"
-          style={{ height }}
-        >
+        <div className="flex flex-col items-center justify-center p-4 text-destructive">
           <XCircle className="h-8 w-8 mb-2" />
           <p className="text-sm font-semibold">Error loading items</p>
           <p className="text-xs">
@@ -401,10 +402,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       (appliedScanArgs.startBound || appliedScanArgs.endBound)
     ) {
       return (
-        <div
-          className="flex flex-col items-center justify-center p-4 text-center"
-          style={{ height }}
-        >
+        <div className="flex flex-col items-center justify-center p-4 text-center">
           <Search className="h-12 w-12 text-muted-foreground/50 mb-3" />
           <p className="text-muted-foreground text-sm">
             No items match the current filters.
@@ -424,10 +422,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
       !appliedScanArgs.endBound
     ) {
       return (
-        <div
-          className="flex flex-col items-center justify-center p-4 text-center"
-          style={{ height }}
-        >
+        <div className="flex flex-col items-center justify-center p-4 text-center">
           <Search className="h-12 w-12 text-muted-foreground/50 mb-3" />
           <p className="text-muted-foreground text-sm">Tree is empty.</p>
         </div>
@@ -461,12 +456,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             <TableHeader className="z-[1] bg-background shadow-sm">
               <TableRow className="flex">
                 <TableHead
-                  style={{ flex: `0 0 60px` }}
-                  className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
-                >
-                  Actions
-                </TableHead>
-                <TableHead
                   style={{ flex: `0 0 ${keyColumnWidth}px` }}
                   className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
                 >
@@ -480,7 +469,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                 </TableHead>
               </TableRow>
             </TableHeader>
-            {/* Apply padding to tbody to create space for non-rendered items */}
             <TableBody
               style={{
                 height: rowVirtualizer.getTotalSize(),
@@ -488,18 +476,15 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                 paddingBottom: `${paddingBottom}px`,
                 width: "100%",
                 position: "relative",
-
-                // No explicit height or width: "100%" or position: "relative" needed here for padding method
               }}
             >
               {virtualItems.map((virtualRow) => {
                 const item = allDisplayItems[virtualRow.index];
-                // Each TableRow is rendered directly, not absolutely positioned
                 return (
                   <TableRow
                     data-row-key={item?.key}
                     key={virtualRow.key}
-                    ref={rowVirtualizer.measureElement} // Critical for dynamic height measurement
+                    ref={rowVirtualizer.measureElement}
                     data-index={virtualRow.index}
                     style={{
                       position: "absolute",
@@ -515,19 +500,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                         ? "hover:bg-muted/20"
                         : "bg-muted/10 dark:bg-black/10 hover:bg-muted/30"
                     )}
+                    onPointerDown={() => {
+                      setOpenEntryDialogKey(item?.key ?? null);
+                    }}
                   >
                     {item ? (
                       <>
-                        <TableCell className="w-[60px]">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={handleRowDelete}
-                            className="h-4 w-4 cursor-pointer hover:text-destructive rounded-md"
-                          >
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
                         <TableCell
                           className="font-mono text-sm text-muted-foreground py-1 px-3 align-top overflow-hidden text-ellipsis"
                           title={item.key}
@@ -570,165 +548,163 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
 
   return (
-    <div className="flex flex-col space-y-3 h-full min-h-0">
-      <div className="p-4 shadow-sm space-y-4 border rounded-lg bg-card">
-        {/* ... (Filter controls remain the same) ... */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-          <h3 className="text-md whitespace-nowrap text-muted-foreground font-medium">
-            Scan Entries
-          </h3>
-          <Tabs
-            value={scanMode}
-            onValueChange={handleScanModeChange}
-            className="w-full sm:w-[20rem]"
-          >
-            <TabsList className="h-9 grid w-full grid-cols-2">
-              <TabsTrigger
-                value="prefix"
-                className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
-              >
-                <div className="flex items-center justify-center mr-1 px-2 py-1.5">
-                  <ArrowRightToLine className="mr-1.5 h-3.5 w-3.5" />
-                  Prefix
-                </div>
-              </TabsTrigger>
-              <TabsTrigger
-                value="range"
-                className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
-              >
-                <div className="flex items-center justify-center mr-1 px-2 py-1.5">
-                  <MoveHorizontal className="mr-1.5 h-3.5 w-3.5" />
-                  Range
-                </div>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <div className="flex items-center gap-2 pt-2 justify-end w-full sm:w-auto">
-            <Button
-              onClick={handleClearFilters}
-              size="sm"
-              variant="outline"
-              className="h-9"
-              disabled={
-                isLoadingFilteredCount ||
-                isLoadingItems ||
-                isLoadingUnfilteredCount ||
-                downloadScanMutation.isPending
-              }
+    <>
+      <div className="flex flex-col space-y-3 h-full min-h-0">
+        <div className=" shadow-sm space-y-4 rounded-lg bg-card">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+            <Tabs
+              value={scanMode}
+              onValueChange={handleScanModeChange}
+              className="w-full sm:w-[20rem]"
             >
-              <XCircle className="mr-2 h-4 w-4" /> Clear
-            </Button>
-            <Button
-              onClick={handleDownloadScan}
-              size="sm"
-              variant="outline"
-              className="h-9"
-              disabled={
-                downloadScanMutation.isPending ||
-                isLoadingItems ||
-                isLoadingFilteredCount ||
-                (filteredTotalItems ?? 0) === 0
-              }
-              title={
-                (filteredTotalItems ?? 0) === 0
-                  ? "No items in current scan to download"
-                  : "Download current scan results as JSONL"
-              }
-            >
-              {downloadScanMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              Download
-            </Button>
-            <div className="text-right text-xs text-muted-foreground pt-1 pr-1">
-              {(filteredTotalItems ?? 0).toLocaleString()}
-              {unfilteredTotalItems !== undefined &&
-                unfilteredTotalItems !== (filteredTotalItems ?? 0) &&
-                ` / ${unfilteredTotalItems.toLocaleString()}`}
+              <TabsList className="h-9 grid w-full grid-cols-2">
+                <TabsTrigger
+                  value="prefix"
+                  className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
+                >
+                  <div className="flex items-center justify-center mr-1 px-2 py-1.5">
+                    <ArrowRightToLine className="mr-1.5 h-3.5 w-3.5" />
+                    Prefix
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="range"
+                  className="text-xs data-[state=active]:bg-primary/10 rounded-md h-full"
+                >
+                  <div className="flex items-center justify-center mr-1 px-2 py-1.5">
+                    <MoveHorizontal className="mr-1.5 h-3.5 w-3.5" />
+                    Range
+                  </div>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="flex items-center gap-2 pt-2 justify-end w-full sm:w-auto">
+              <Button
+                onClick={handleClearFilters}
+                size="sm"
+                variant="outline"
+                className="h-9"
+                disabled={
+                  isLoadingFilteredCount ||
+                  isLoadingItems ||
+                  isLoadingUnfilteredCount ||
+                  downloadScanMutation.isPending
+                }
+              >
+                <XCircle className="mr-2 h-4 w-4" /> Clear
+              </Button>
+              <Button
+                onClick={handleDownloadScan}
+                size="sm"
+                variant="outline"
+                className="h-9"
+                disabled={
+                  downloadScanMutation.isPending ||
+                  isLoadingItems ||
+                  isLoadingFilteredCount ||
+                  (filteredTotalItems ?? 0) === 0
+                }
+                title={
+                  (filteredTotalItems ?? 0) === 0
+                    ? "No items in current scan to download"
+                    : "Download current scan results as JSONL"
+                }
+              >
+                {downloadScanMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Download
+              </Button>
+              <div className="text-right text-xs text-muted-foreground pt-1 pr-1">
+                {(filteredTotalItems ?? 0).toLocaleString()}
+                {unfilteredTotalItems !== undefined &&
+                  unfilteredTotalItems !== (filteredTotalItems ?? 0) &&
+                  ` /\xa0${unfilteredTotalItems.toLocaleString()}`}
+              </div>
             </div>
           </div>
+
+          {scanMode === "range" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center space-x-2">
+                  <Input
+                    id="startKey"
+                    type="text"
+                    placeholder="Start Key"
+                    value={trueStartBound ? u8ToString(trueStartBound) : ""}
+                    onChange={(e) => handleRangeStartKeyChange(e.target.value)}
+                    className=" "
+                  />
+                  <Checkbox
+                    id="startInclusive"
+                    checked={trueStartInclusive}
+                    onCheckedChange={(checked) =>
+                      handleRangeStartInclusiveChange(!!checked)
+                    }
+                  />
+                  <Label
+                    htmlFor="startInclusive"
+                    className="text-xs font-normal text-muted-foreground cursor-pointer"
+                  >
+                    Incl.
+                  </Label>
+                </div>
+              </div>
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center space-x-2">
+                  <Input
+                    id="endKey"
+                    type="text"
+                    placeholder="End Key"
+                    value={trueEndBound ? u8ToString(trueEndBound) : ""}
+                    onChange={(e) => handleRangeEndKeyChange(e.target.value)}
+                    className=" "
+                  />
+                  <Checkbox
+                    id="endInclusive"
+                    checked={trueEndInclusive}
+                    onCheckedChange={(checked) =>
+                      handleRangeEndInclusiveChange(!!checked)
+                    }
+                  />
+                  <Label
+                    htmlFor="endInclusive"
+                    className="text-xs font-normal text-muted-foreground cursor-pointer"
+                  >
+                    Incl.
+                  </Label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {scanMode === "prefix" && (
+            <div className="flex flex-col space-y-1">
+              <Input
+                id="prefixKey"
+                type="text"
+                placeholder="Prefix"
+                value={trueStartBound ? u8ToString(trueStartBound) : ""}
+                onChange={(e) => handlePrefixInputChange(e.target.value)}
+              />
+            </div>
+          )}
         </div>
-
-        {scanMode === "range" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            <div className="flex flex-col space-y-1">
-              <Label htmlFor="startKey" className="text-xs font-medium">
-                Start Key
-              </Label>
-              <div className="flex items-center space-x-2 pt-1">
-                <Input
-                  id="startKey"
-                  type="text"
-                  placeholder="Enter start key (optional)"
-                  value={trueStartBound ? u8ToString(trueStartBound) : ""}
-                  onChange={(e) => handleRangeStartKeyChange(e.target.value)}
-                  className="h-9 text-sm"
-                />
-                <Checkbox
-                  id="startInclusive"
-                  checked={trueStartInclusive}
-                  onCheckedChange={(checked) =>
-                    handleRangeStartInclusiveChange(!!checked)
-                  }
-                />
-                <Label
-                  htmlFor="startInclusive"
-                  className="text-xs font-normal text-muted-foreground cursor-pointer"
-                >
-                  Inclusive
-                </Label>
-              </div>
-            </div>
-            <div className="flex flex-col space-y-1">
-              <Label htmlFor="endKey" className="text-xs font-medium">
-                End Key
-              </Label>
-              <div className="flex items-center space-x-2 pt-1">
-                <Input
-                  id="endKey"
-                  type="text"
-                  placeholder="Enter end key (optional)"
-                  value={trueEndBound ? u8ToString(trueEndBound) : ""}
-                  onChange={(e) => handleRangeEndKeyChange(e.target.value)}
-                  className="h-9 text-sm"
-                />
-                <Checkbox
-                  id="endInclusive"
-                  checked={trueEndInclusive}
-                  onCheckedChange={(checked) =>
-                    handleRangeEndInclusiveChange(!!checked)
-                  }
-                />
-                <Label
-                  htmlFor="endInclusive"
-                  className="text-xs font-normal text-muted-foreground cursor-pointer"
-                >
-                  Inclusive
-                </Label>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {scanMode === "prefix" && (
-          <div className="flex flex-col space-y-1">
-            <Label htmlFor="prefixKey" className="text-xs font-medium">
-              Prefix
-            </Label>
-            <Input
-              id="prefixKey"
-              type="text"
-              placeholder="Enter prefix (optional, scans all if empty)"
-              value={trueStartBound ? u8ToString(trueStartBound) : ""}
-              onChange={(e) => handlePrefixInputChange(e.target.value)}
-              className="h-9 text-sm"
-            />
-          </div>
-        )}
+        {renderContent()}
       </div>
-      {renderContent()}
-    </div>
+      <EntryDialog
+        prly={prly}
+        entryKey={openEntryDialogKey ?? ""}
+        open={openEntryDialogKey !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenEntryDialogKey(null);
+          }
+        }}
+      />
+    </>
   );
 };

@@ -244,6 +244,7 @@ export const useProllyStore = create<ProllyStoreState>()((set, get) => {
             draft[treePath].lastError = null;
           }),
         }));
+        await get().saveTree(treePath);
       } catch (err) {
         console.error(`⚠️  Failed to reload hash for ${treePath}:`, err);
       }

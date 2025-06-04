@@ -27,6 +27,8 @@ import { useProllyStore, type ProllyTree } from "@/useProllyStore";
 import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
 
 import { ProllyFilePanel } from "./treeOperations/FilePanel";
+import TreeManagement from "./tree-management";
+import { AddEntryDialog } from "./treeOperations/AddEntryDialog";
 // import { RenameDialog } from "./treeOperations/RenameDialog";
 
 interface TreeInterfaceProps {
@@ -34,15 +36,8 @@ interface TreeInterfaceProps {
 }
 
 export function TreeInterface({ treeState }: TreeInterfaceProps) {
-  const trees = useProllyStore((state) => state.trees);
-
   const handleSave = () => {
     useProllyStore.getState().saveTree(treeState.path);
-  };
-
-  const commonProps = {
-    tree: treeState.tree,
-    treeId: treeState.id,
   };
 
   // Define default active tab, e.g., "basic"
@@ -52,16 +47,17 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
     <Card className="w-full shadow-lg border flex-1 overflow-hidden h-full p-1">
       <CardHeader>
         <CardTitle className="text-xl tracking-tight flex items-center gap-2">
-          <span className="font-mono text-base bg-muted px-2 py-1 rounded">
-            {treeState.path}
+          <span className="px-2 py-1 rounded font-mono">
+            {treeState.path.replace(/\.prly$/, "")}
           </span>
           {/* <RenameDialog treeId={treeState.id} currentName={treeState.id} /> */}
           <span className="ml-2 flex gap-2 ml-auto">
-            {treeState.rootHash !== treeState.lastSavedRootHash && (
+            <AddEntryDialog tree={treeState} />
+            {/* {treeState.rootHash !== treeState.lastSavedRootHash && (
               <Button size="icon" onClick={handleSave}>
                 <Save className="h-4 w-4" />
               </Button>
-            )}
+            )} */}
           </span>
         </CardTitle>
       </CardHeader>
@@ -70,34 +66,20 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           defaultValue={defaultTab}
           className="w-full min-h-0 flex flex-col"
         >
-          <TabsList className="grid w-full grid-cols-3 mb-2 grid-rows-3 h-24 ">
+          <TabsList className="grid w-full grid-cols-2 mb-2 grid-rows-1 h-8 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
-            <TabsTrigger value="basic">Basic Ops</TabsTrigger>
-            <TabsTrigger value="hierarchyScan">Tree Scan</TabsTrigger>
-            <TabsTrigger value="batchInsert">JSONL</TabsTrigger>
-            <TabsTrigger value="file">File</TabsTrigger>
-            <TabsTrigger value="diff">Diff</TabsTrigger>
-            <TabsTrigger value="gc">GC</TabsTrigger>
+            <TabsTrigger value="management">Management</TabsTrigger>
           </TabsList>
 
           <TabsContent
-            value="basic"
-            className="border-t pt-4 min-h-0 flex-1 overflow-hidden min-h-0"
-          >
-            <BasicOpsComponent
-              tree={treeState.tree}
-              treePath={treeState.path}
-            />
-          </TabsContent>
-
-          <TabsContent
             value="scan"
-            className="border-t pt-4 min-h-0 flex-1 overflow-hidden min-h-0"
+            className="pt-2 min-h-0 flex-1 overflow-hidden min-h-0"
           >
             {treeState.tree ? (
               <ScanEntries
+                key={`tree-${treeState.path}-${treeState.rootHash}`}
                 currentRoot={treeState.rootHash}
-                tree={treeState.tree as WasmProllyTree}
+                prly={treeState}
                 treePath={treeState.path}
                 height="400px"
                 itemHeight={65}
@@ -107,48 +89,8 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="hierarchyScan" className="border-t pt-4">
-            {treeState.tree ? (
-              <VirtualizedHierarchyScan
-                currentRoot={treeState.rootHash}
-                tree={treeState.tree as WasmProllyTree}
-                treePath={treeState.path}
-                height="400px"
-                itemHeight={65} // Adjust as needed, hierarchy items might be taller
-              />
-            ) : (
-              <p>Tree instance not available.</p>
-            )}
-          </TabsContent>
-
-          <TabsContent value="file" className="border-t pt-4">
-            <ProllyFilePanel
-              tree={treeState.tree}
-              treePath={treeState.path}
-              treeConfig={treeState.treeConfig}
-              rootHash={treeState.rootHash}
-            />
-          </TabsContent>
-
-          <TabsContent value="batchInsert" className="border-t pt-4">
-            <div className="space-y-4">
-              <JsonlFileLoaderComponent
-                tree={treeState.tree}
-                treePath={treeState.path}
-              />
-              <JsonlBatchArea tree={treeState.tree} treePath={treeState.path} />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="diff" className="border-t pt-4">
-            <DiffComponent tree={treeState.tree} treePath={treeState.path} />
-          </TabsContent>
-
-          <TabsContent value="gc" className="border-t pt-4">
-            <GarbageCollectionComponent
-              tree={treeState.tree}
-              treePath={treeState.path}
-            />
+          <TabsContent value="management" className="pt-4">
+            <TreeManagement treeState={treeState} />
           </TabsContent>
         </Tabs>
       </CardContent>
