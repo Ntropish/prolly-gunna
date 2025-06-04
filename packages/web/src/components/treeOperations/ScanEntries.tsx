@@ -84,8 +84,8 @@ const processScanPageItems = (rawItems: [Uint8Array, Uint8Array][]): Item[] => {
 };
 
 const ITEMS_PER_PAGE = 50;
-const DEFAULT_ITEM_HEIGHT = 60; // Estimate, actual height will be measured
-const KEY_COLUMN_WIDTH_PX = 250;
+const DEFAULT_ITEM_HEIGHT = 20; // Estimate, actual height will be measured
+const KEY_COLUMN_WIDTH_PX = 350;
 const VALUE_COLUMN_MIN_WIDTH_PX = 200;
 
 export const ScanEntries: React.FC<ScanEntriesProps> = ({
@@ -125,6 +125,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   );
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLTableElement>(null);
 
   const { data: unfilteredTotalItems, isLoading: isLoadingUnfilteredCount } =
     useQuery<number, Error, number, readonly (string | null)[]>({
@@ -217,8 +218,8 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
 
   const rowVirtualizer = useVirtualizer({
     count: filteredTotalItems ?? 0,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => itemHeight, // Provided by prop, used as an estimate
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 23.3, // Provided by prop, used as an estimate
     overscan: 5,
     // No paddingStartIndex or paddingEndIndex needed if we manually apply padding
   });
@@ -436,20 +437,21 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             </div>
           )}
           <Table
+            ref={tableScrollRef}
             style={{ position: "relative", borderCollapse: "collapse" }}
-            className="h-full"
+            className="h-full overflow-auto"
           >
             <TableHeader className="z-[1] bg-background shadow-sm">
-              <TableRow>
+              <TableRow className="flex">
                 <TableHead
-                  style={{ width: `${keyColumnWidth}px` }}
-                  className="text-xs px-3 py-2 h-auto sticky top-0 left-0 z-[1] bg-background shadow-sm"
+                  style={{ flex: `0 0 ${keyColumnWidth}px` }}
+                  className="text-xs px-3 py-2 h-auto z-[1] bg-background shadow-sm"
                 >
                   Key
                 </TableHead>
                 <TableHead
-                  style={{ minWidth: `${VALUE_COLUMN_MIN_WIDTH_PX}px` }}
-                  className="text-xs px-3 py-2 h-auto sticky top-0 left-0 z-[2] bg-background shadow-sm "
+                  style={{ flex: `1 1 0` }}
+                  className="text-xs px-3 py-2 h-auto  z-[2] bg-background shadow-sm "
                 >
                   Value
                 </TableHead>
@@ -458,8 +460,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
             {/* Apply padding to tbody to create space for non-rendered items */}
             <TableBody
               style={{
+                height: rowVirtualizer.getTotalSize(),
                 paddingTop: `${paddingTop}px`,
                 paddingBottom: `${paddingBottom}px`,
+                width: "100%",
+                position: "relative",
+
                 // No explicit height or width: "100%" or position: "relative" needed here for padding method
               }}
             >
@@ -471,10 +477,16 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                     key={virtualRow.key}
                     ref={rowVirtualizer.measureElement} // Critical for dynamic height measurement
                     data-index={virtualRow.index}
-                    // No position, transform, or explicit height from virtualRow.size here.
-                    // estimateSize gives initial height, measureElement refines it.
-                    // Row height is determined by its content or specific CSS on TableRow/TableCell.
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: `1.5rem`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
                     className={cn(
+                      "flex",
                       virtualRow.index % 2 === 0
                         ? "hover:bg-muted/20"
                         : "bg-muted/10 dark:bg-black/10 hover:bg-muted/30"
@@ -484,8 +496,12 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                       <>
                         <TableCell
                           // Width is implicitly handled by table-layout:fixed and TableHead
-                          className="font-mono text-sm text-muted-foreground py-1 px-3 align-top" // align-top for consistency if values wrap
+                          className="font-mono text-sm text-muted-foreground py-1 px-3 align-top overflow-hidden text-ellipsis" // align-top for consistency if values wrap
                           title={item.key}
+                          style={{
+                            flex: `0 0 ${keyColumnWidth}px`,
+                            width: `${keyColumnWidth}px`,
+                          }}
                         >
                           <span className="block w-full break-all">
                             {item.key}
@@ -493,7 +509,10 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
                           {/* break-all for long keys */}
                         </TableCell>
                         <TableCell
-                          className="font-mono text-sm py-1 px-3 align-top"
+                          className="font-mono text-sm py-1 px-3 align-top text-ellipsis overflow-hidden"
+                          style={{
+                            flex: `1 1 0`,
+                          }}
                           title={item.value}
                         >
                           {/* Allow value to wrap, remove truncate if wrapping is preferred */}
@@ -524,7 +543,7 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   };
 
   return (
-    <div className="flex flex-col space-y-3 h-full min-h-0 overflow-auto">
+    <div className="flex flex-col space-y-3 h-full min-h-0">
       <div className="p-4 shadow-sm space-y-4 border rounded-lg bg-card">
         {/* ... (Filter controls remain the same) ... */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
