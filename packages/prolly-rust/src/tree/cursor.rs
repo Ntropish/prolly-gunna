@@ -284,7 +284,6 @@ impl<S: ChunkStore> Cursor<S> {
         tree: &ProllyTree<S>,
         args: &ScanArgs,
     ) -> Result<Self> {
-        gloo_console::debug!(format!("[Cursor::new_for_scan] Received Args: {:?}", args));
 
         let store = Arc::clone(&tree.store);
         let config = tree.config.clone();
@@ -292,7 +291,6 @@ impl<S: ChunkStore> Cursor<S> {
         let mut current_leaf_entry_idx: usize = if args.reverse { usize::MAX } else { 0 };
 
         if tree.root_hash.is_none() {
-            gloo_console::debug!("[Cursor::new_for_scan] Tree is empty.");
             return Ok(Self { store, config, path, current_leaf_entry_idx });
         }
 
@@ -307,7 +305,6 @@ impl<S: ChunkStore> Cursor<S> {
             args.start_bound.as_ref() // For reverse, we also descend towards start_bound (upper limit)
                                       // then adjust index to be *before* it if exclusive.
         };
-        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1: primary_bound_for_initial_descend: {:?}", primary_bound_for_initial_descend.map(|k| format!("{:?}", k))));
 
         if let Some(key_to_find_in_descent) = primary_bound_for_initial_descend {
             while let Node::Internal { children, .. } = &current_node_obj {
@@ -336,7 +333,6 @@ impl<S: ChunkStore> Cursor<S> {
                     else if current_leaf_entry_idx >= entries.len() { current_leaf_entry_idx = entries.len().saturating_sub(1); }
                 }
             }
-             gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1 (Bound): Positioned at entry_idx: {:?} relative to primary_bound", current_leaf_entry_idx));
         } else { // No primary bound, descend to first/last leaf
             while let Node::Internal { children, .. } = &current_node_obj {
                  if children.is_empty() { break; }
@@ -351,12 +347,10 @@ impl<S: ChunkStore> Cursor<S> {
                     if entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
                 } else { current_leaf_entry_idx = usize::MAX; }
             } // Forward current_leaf_entry_idx is already 0
-            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 1 (No Bound): Initial entry_idx: {:?}", current_leaf_entry_idx));
         }
 
         // --- Phase 2: Apply offset ---
         let mut remaining_offset = args.offset;
-        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 2: Applying offset: {}, current_leaf_entry_idx before offset: {:?}", remaining_offset, current_leaf_entry_idx));
 
         while remaining_offset > 0 && !path.is_empty() {
             let (_current_leaf_hash, current_leaf_node_obj_ref, _parent_idx) = path.last().unwrap(); // Should be a leaf
@@ -433,7 +427,6 @@ impl<S: ChunkStore> Cursor<S> {
                     }
                 }
             } else {
-                gloo_console::error!("[Cursor::new_for_scan] Phase 2: Expected leaf node at top of path.");
                 break;
             }
         }
@@ -451,7 +444,6 @@ impl<S: ChunkStore> Cursor<S> {
             }
         }
 
-        gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 2: After offset, current_leaf_entry_idx: {:?}", current_leaf_entry_idx));
 
         // --- Phase 3: Final inclusivity adjustment (relative to bounds) ---
         if path.last().is_some() {
@@ -463,7 +455,6 @@ impl<S: ChunkStore> Cursor<S> {
                            !args.start_inclusive &&
                            entries[current_leaf_entry_idx].key == *sb_val {
                             current_leaf_entry_idx = current_leaf_entry_idx.saturating_add(1);
-                            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 3 (Fwd): Adjusted for start_inclusive=false on start_bound, new entry_idx: {}", current_leaf_entry_idx));
                         }
                     }
                 } else { // Reverse scan
@@ -473,7 +464,6 @@ impl<S: ChunkStore> Cursor<S> {
                            entries[current_leaf_entry_idx].key == *sb_val {
                             if current_leaf_entry_idx == 0 { current_leaf_entry_idx = usize::MAX; }
                             else { current_leaf_entry_idx = current_leaf_entry_idx.saturating_sub(1); }
-                            gloo_console::debug!(format!("[Cursor::new_for_scan] Phase 3 (Rev): Adjusted for start_inclusive=false on start_bound (upper), new entry_idx: {:?}", current_leaf_entry_idx));
                         }
                     }
                     // No adjustment for end_bound (lower limit) here for reverse;
@@ -481,18 +471,15 @@ impl<S: ChunkStore> Cursor<S> {
                 }
             }
         }
-        gloo_console::debug!(format!("[Cursor::new_for_scan] Final state: current_leaf_entry_idx: {:?}", current_leaf_entry_idx));
 
         Ok(Self { store, config, path, current_leaf_entry_idx })
     }
 
     pub async fn next_in_scan(&mut self, args: &ScanArgs) -> Result<Option<(Key, Value)>> {
-        gloo_console::debug!(format!("[next_in_scan] BEGIN. reverse: {}, current_leaf_entry_idx: {:?}, path_len: {}", args.reverse, self.current_leaf_entry_idx, self.path.len()));
 
         loop {
             let current_path_len = self.path.len();
             if current_path_len == 0 {
-                gloo_console::debug!("[next_in_scan] Path empty. Returning None.");
                 return Ok(None);
             }
 
@@ -501,40 +488,32 @@ impl<S: ChunkStore> Cursor<S> {
             let (_leaf_hash, current_leaf_node_cloned, _idx_in_parent) = self.path.last().unwrap().clone();
 
             if let Node::Leaf { ref entries, .. } = current_leaf_node_cloned { // Use 'ref entries'
-                gloo_console::debug!(format!("[next_in_scan] In Leaf. entries.len(): {}, current_idx: {:?}", entries.len(), self.current_leaf_entry_idx));
 
                 let entry_opt: Option<&LeafEntry> = if !args.reverse {
                     if self.current_leaf_entry_idx >= entries.len() {
-                        gloo_console::debug!(format!("[next_in_scan Fwd] Index {} out of bounds for len {}. entry_opt=None.", self.current_leaf_entry_idx, entries.len()));
                         None
                     } else {
-                        gloo_console::debug!(format!("[next_in_scan Fwd] Getting entry at index {}.", self.current_leaf_entry_idx));
                         entries.get(self.current_leaf_entry_idx)
                     }
                 } else { // Reverse
                     if self.current_leaf_entry_idx == usize::MAX || self.current_leaf_entry_idx >= entries.len() {
-                        gloo_console::debug!(format!("[next_in_scan Rev] Index {:?} invalid for len {}. entry_opt=None.", self.current_leaf_entry_idx, entries.len()));
                         None
                     } else {
-                        gloo_console::debug!(format!("[next_in_scan Rev] Getting entry at index {}.", self.current_leaf_entry_idx));
                         entries.get(self.current_leaf_entry_idx)
                     }
                 };
 
                 if let Some(entry) = entry_opt {
                     let key_ref = &entry.key;
-                    gloo_console::debug!(format!("[next_in_scan] Processing key: {:?}", key_ref));
 
                     // Boundary checks
                     if !args.reverse {
                         if let Some(ref eb) = args.end_bound {
                             match key_ref.cmp(eb) {
                                 Ordering::Greater => {
-                                    gloo_console::debug!(format!("[next_in_scan Fwd] Key {:?} > end_bound {:?}. Returning None.", key_ref, eb));
                                     return Ok(None);
                                 }
                                 Ordering::Equal if !args.end_inclusive => {
-                                    gloo_console::debug!(format!("[next_in_scan Fwd] Key {:?} == end_bound {:?} and end_inclusive is false. Returning None.", key_ref, eb));
                                     return Ok(None);
                                 }
                                 _ => {}
@@ -544,11 +523,9 @@ impl<S: ChunkStore> Cursor<S> {
                         if let Some(ref sb) = args.start_bound { // start_bound is the "upper" bound in reverse
                             match key_ref.cmp(sb) {
                                 Ordering::Greater => {
-                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} > start_bound (upper) {:?}. Returning None.", key_ref, sb));
                                     return Ok(None);
                                 }
                                 Ordering::Equal if !args.start_inclusive => {
-                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} == start_bound (upper) {:?} and start_inclusive is false. Returning None.", key_ref, sb));
                                     return Ok(None);
                                 }
                                 _ => { /* Key is <= start_bound or (== and inclusive). OK. */ }
@@ -557,11 +534,9 @@ impl<S: ChunkStore> Cursor<S> {
                         if let Some(ref eb) = args.end_bound { // end_bound is the "lower" bound in reverse
                             match key_ref.cmp(eb) {
                                 Ordering::Less => {
-                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} < end_bound (lower) {:?}. Returning None.", key_ref, eb));
                                     return Ok(None);
                                 }
                                 Ordering::Equal if !args.end_inclusive => {
-                                    gloo_console::debug!(format!("[next_in_scan Rev] Key {:?} == end_bound (lower) {:?} and end_inclusive is false. Returning None.", key_ref, eb));
                                     return Ok(None);
                                 }
                                 _ => { /* Key is >= end_bound or (== and inclusive). OK. */ }
@@ -569,7 +544,6 @@ impl<S: ChunkStore> Cursor<S> {
                         }
                     }
 
-                    gloo_console::debug!(format!("[next_in_scan] Key {:?} passed boundary checks.", key_ref));
                     let value = self.load_value_repr_from_store(&entry.value).await?;
 
                     if !args.reverse {
@@ -581,11 +555,9 @@ impl<S: ChunkStore> Cursor<S> {
                             self.current_leaf_entry_idx -= 1;
                         }
                     }
-                    gloo_console::debug!(format!("[next_in_scan] Returning Some for key {:?}. New idx: {:?}", key_ref, self.current_leaf_entry_idx));
                     return Ok(Some((entry.key.clone(), value)));
 
                 } else { // entry_opt was None
-                    gloo_console::debug!("[next_in_scan] entry_opt is None. Advancing leaf.");
                     let advanced: bool = if !args.reverse {
                         // Need to pass self.path mutably
                         Self::advance_cursor_path_to_next_leaf_static(&mut self.path, &self.store).await?
@@ -594,7 +566,6 @@ impl<S: ChunkStore> Cursor<S> {
                     };
                     
                     if !advanced {
-                        gloo_console::debug!("[next_in_scan] No more leaves to advance. Returning None.");
                         return Ok(None);
                     }
 
@@ -604,19 +575,15 @@ impl<S: ChunkStore> Cursor<S> {
                             self.current_leaf_entry_idx = if !args.reverse { 0 }
                                                         else { new_entries.len().saturating_sub(1) };
                             if args.reverse && new_entries.is_empty() { self.current_leaf_entry_idx = usize::MAX; }
-                            gloo_console::debug!(format!("[next_in_scan] Advanced to new leaf. New idx: {:?}", self.current_leaf_entry_idx));
                         } else {
-                            gloo_console::error!("[next_in_scan] Advanced cursor path did not end in a leaf.");
                             return Err(ProllyError::InternalError("Advanced cursor path did not end in a leaf".to_string()));
                         }
                     } else { // Path became empty after advance, should have been caught by !advanced
-                        gloo_console::debug!("[next_in_scan] Path empty after trying to advance. Returning None.");
                         return Ok(None);
                     }
                     // Loop again to process the new leaf/index
                 }
             } else {
-                gloo_console::error!("[next_in_scan] Cursor path top was not a LeafNode.");
                 return Err(ProllyError::InternalError("Cursor path top was not a LeafNode during next_in_scan".to_string()));
             }
         } // loop will continue
