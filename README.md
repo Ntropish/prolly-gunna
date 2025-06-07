@@ -38,7 +38,7 @@ const u8ToString = (arr: Uint8Array): string => new TextDecoder().decode(arr);
 // Create a new tree
 const tree = new PTree();
 
-// Insert key-value pairs
+// Insert key-value pairs, mutating the tree
 await tree.insert(toU8("hello"), toU8("world"));
 await tree.insert(toU8("prolly"), toU8("gunna"));
 
@@ -46,8 +46,8 @@ await tree.insert(toU8("prolly"), toU8("gunna"));
 const value = await tree.get(toU8("hello"));
 console.log(u8ToString(value)); // "world"
 
-// Get the root hash, which represents the current version of the tree
-const rootHash = await tree.commit();
+// Get the root hash to capture the current state
+const rootHash = await tree.getRootHash();
 console.log("Current root hash:", rootHash);
 
 // Delete a value
@@ -67,26 +67,26 @@ await tree.insertBatch(batch);
 
 ### Versioning and Diffing
 
-Prolly Gunna's immutable nature makes it easy to work with different snapshots of your data.
+Use getRootHash() to capture immutable snapshots of the tree between mutations.
 
 ```TypeScript
-
 const tree = new PTree();
 await tree.insert(toU8("a"), toU8("1"));
 await tree.insert(toU8("b"), toU8("2"));
 
-// Get the hash of Version 1
-const hashV1 = await tree.commit();
+// Capture the root hash of Version 1
+const hashV1 = await tree.getRootHash();
 
-// Create Version 2 by making changes
+// Mutate the tree to create Version 2
 await tree.delete(toU8("a"));          // Deletion
 await tree.insert(toU8("b"), toU8("2_mod")); // Modification
 await tree.insert(toU8("c"), toU8("3"));  // Addition
 
-// Get the hash of Version 2
-const hashV2 = await tree.commit();
+// Capture the root hash of Version 2
+const hashV2 = await tree.getRootHash();
 
-// Diff the two versions
+// The `tree` object now represents V2, but `hashV1` still points to the old data.
+// We can now diff the two historical versions.
 const diffs = await tree.diffRoots(hashV1, hashV2);
 
 console.log(diffs);
@@ -168,20 +168,24 @@ console.log(u8ToString(value)); // "this tree"
 Reclaim memory from old, unreferenced versions of the tree.
 
 ```TypeScript
-
 const tree = new PTree();
 
 // Create Version 1
 await tree.insert(toU8("a"), toU8("1"));
-const hashV1 = await tree.commit(); // An orphaned version
+const hashV1 = await tree.getRootHash(); // Snapshot of V1
 
 // Create Version 2
 await tree.insert(toU8("b"), toU8("2"));
-const hashV2 = await tree.commit(); // The currently "live" version
+const hashV2 = await tree.getRootHash(); // Snapshot of V2
 
-// The store now contains chunks for both versions.
-// We can collect the chunks only reachable by hashV1.
-const collectedCount = await tree.triggerGc([hashV2]);
+// Mutate again, creating Version 3. hashV2 is now an older, orphaned snapshot.
+await tree.insert(toU8("c"), toU8("3"));
+const hashV3 = await tree.getRootHash();
+
+// The store now contains chunks for V1, V2, and V3.
+// If we only care about V1 and the current state (V3), we can GC anything
+// that is unique to V2.
+const collectedCount = await tree.triggerGc([hashV1, hashV3]);
 
 console.log(`Garbage collected ${collectedCount} chunks.`);
 ```
@@ -220,13 +224,9 @@ Inserts an array of key-value pairs efficiently.
 
 Deletes a key-value pair. Returns true if the key was found and deleted.
 
-`commit(): Promise<Uint8Array | null>`
-
-Finalizes the current state of the tree and returns its root hash. This hash serves as a persistent handle to the current version.
-
 `getRootHash(): Promise<Uint8Array | null>`
 
-Returns the root hash of the current tree state without creating a new commit.
+Returns the root hash of the current tree state.
 
 `scanItems(options: ScanOptions): Promise<ScanPage>`
 
