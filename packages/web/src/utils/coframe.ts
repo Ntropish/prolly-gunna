@@ -19,7 +19,7 @@ export interface CoframeOptions<T_Plain> {
   /** The name of the primary key field on your plain object. */
   primaryKey: keyof T_Plain;
 
-  treeConfig?: TreeConfigOptions;
+  // treeConfig?: TreeConfigOptions;
 }
 
 export class Coframe<T_Plain> {
