@@ -1,10 +1,24 @@
 // benchmark.ts
 
-import { Bench } from "tinybench";
-import ora from "ora"; // Import the new dependency
+import { Bench, Task } from "tinybench"; // Import Task for correct typing
+import ora from "ora";
 import { PTree } from "../dist/prolly_rust.js";
 
 const toU8 = (s: string) => new TextEncoder().encode(s);
+
+// A context interface for our benchmarks. Properties are optional
+// as not every benchmark will use every property.
+interface BenchmarkContext {
+  tree?: PTree;
+  keys?: Uint8Array[];
+  data?: [Uint8Array, Uint8Array][];
+  // Allow null for hash properties
+  hash1?: Uint8Array | null;
+  hash2?: Uint8Array | null;
+  rootHash?: Uint8Array | null;
+  // Allow null for the chunks map
+  chunks?: Map<Uint8Array, Uint8Array> | null;
+}
 
 // --- Helper Functions (remain the same) ---
 function generateData(
@@ -37,149 +51,223 @@ async function main() {
 
   const bench = new Bench({
     warmupIterations: 2,
-    iterations: 5,
+    iterations: 10,
   });
 
   const SMALL_VALUE_SIZE = 100;
   const LARGE_VALUE_SIZE = 32 * 1024;
 
+  // --- BENCHMARK DEFINITIONS ---
+
   bench
-    // --- INSERTION BENCHMARKS ---
-    .add("1,000 individual inserts (small values)", async () => {
-      const tree = new PTree();
-      const data = generateData(1000, "insert_small", () =>
-        createLargeValue(SMALL_VALUE_SIZE)
-      );
-      for (const [key, val] of data) {
-        await tree.insert(key, val);
+    .add(
+      "1,000 individual inserts (small values)",
+      async function (this: Task & BenchmarkContext) {
+        const tree = new PTree();
+        for (const [key, val] of this.data!) {
+          await tree.insert(key, val);
+        }
+      },
+      {
+        beforeAll(this: Task & BenchmarkContext) {
+          this.data = generateData(1000, "insert_small", () =>
+            createLargeValue(SMALL_VALUE_SIZE)
+          );
+        },
       }
-    })
-    .add("1,000 individual inserts (large values, with CDC)", async () => {
-      const tree = new PTree();
-      const data = generateData(1000, "insert_large", () =>
-        createLargeValue(LARGE_VALUE_SIZE)
-      );
-      for (const [key, val] of data) {
-        await tree.insert(key, val);
+    )
+    .add(
+      "1,000 individual inserts (large values, with CDC)",
+      async function (this: Task & BenchmarkContext) {
+        const tree = new PTree();
+        for (const [key, val] of this.data!) {
+          await tree.insert(key, val);
+        }
+      },
+      {
+        beforeAll(this: Task & BenchmarkContext) {
+          this.data = generateData(1000, "insert_large", () =>
+            createLargeValue(LARGE_VALUE_SIZE)
+          );
+        },
       }
-    })
+    )
+    .add(
+      "10,000 items batch insert (small values)",
+      async function (this: Task & BenchmarkContext) {
+        const tree = new PTree();
+        await tree.insertBatch(this.data! as any);
+      },
+      {
+        beforeAll(this: Task & BenchmarkContext) {
+          this.data = generateData(10000, "batch_small", () =>
+            createLargeValue(SMALL_VALUE_SIZE)
+          );
+        },
+      }
+    )
+    .add(
+      "1,000 items batch insert (large values, with CDC)",
+      async function (this: Task & BenchmarkContext) {
+        const tree = new PTree();
+        await tree.insertBatch(this.data! as any);
+      },
+      {
+        beforeAll(this: Task & BenchmarkContext) {
+          this.data = generateData(1000, "batch_large", () =>
+            createLargeValue(LARGE_VALUE_SIZE)
+          );
+        },
+      }
+    )
+    .add(
+      "10,000 individual gets (small values)",
+      async function (this: Task & BenchmarkContext) {
+        for (const key of this.keys!) {
+          await this.tree!.get(key);
+        }
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(10000, "get_small", () =>
+            createLargeValue(SMALL_VALUE_SIZE)
+          );
+          await this.tree.insertBatch(data as any);
+          this.keys = data
+            .map((item) => item[0])
+            .sort(() => Math.random() - 0.5);
+        },
+      }
+    )
+    .add(
+      "1,000 individual gets (large values, with CDC)",
+      async function (this: Task & BenchmarkContext) {
+        for (const key of this.keys!) {
+          await this.tree!.get(key);
+        }
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(1000, "get_large", () =>
+            createLargeValue(LARGE_VALUE_SIZE)
+          );
+          await this.tree.insertBatch(data as any);
+          this.keys = data
+            .map((item) => item[0])
+            .sort(() => Math.random() - 0.5);
+        },
+      }
+    )
+    .add(
+      "1,000 individual deletes",
+      async function (this: Task & BenchmarkContext) {
+        for (const key of this.keys!) {
+          await this.tree!.delete(key);
+        }
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(1000, "delete", () =>
+            createLargeValue(SMALL_VALUE_SIZE)
+          );
+          await this.tree.insertBatch(data as any);
+          this.keys = data
+            .map((item) => item[0])
+            .sort(() => Math.random() - 0.5);
+        },
+      }
+    )
+    .add(
+      "Diff with 1 modification in 5000 items",
+      async function (this: Task & BenchmarkContext) {
+        await this.tree!.diffRoots(this.hash1!, this.hash2!);
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(5000, "diff_small", () =>
+            createLargeValue(100)
+          );
+          await this.tree.insertBatch(data as any);
+          this.hash1 = await this.tree.getRootHash();
+          await this.tree.insert(toU8("diff_small_00001"), toU8("new_value"));
+          this.hash2 = await this.tree.getRootHash();
+        },
+      }
+    )
+    .add(
+      "Diff with 10% modifications in 5000 items",
+      async function (this: Task & BenchmarkContext) {
+        await this.tree!.diffRoots(this.hash1!, this.hash2!);
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const count = 5000;
+          const data = generateData(count, "diff_large_change", () =>
+            createLargeValue(100)
+          );
+          await this.tree.insertBatch(data as any);
+          this.hash1 = await this.tree.getRootHash();
+          for (let i = 0; i < count / 10; i++) {
+            const key = toU8(`diff_large_change_${String(i).padStart(5, "0")}`);
+            await this.tree.insert(key, toU8(`new_value_${i}`));
+          }
+          this.hash2 = await this.tree.getRootHash();
+        },
+      }
+    )
+    .add(
+      "Full iteration over 10000 items",
+      async function (this: Task & BenchmarkContext) {
+        const cursor = await this.tree!.cursorStart();
+        while (true) {
+          if ((await cursor.next()).done) break;
+        }
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(10000, "iter", () => createLargeValue(100));
+          await this.tree.insertBatch(data as any);
+        },
+      }
+    )
+    .add(
+      "Exporting 10000 items with 512-byte values",
+      async function (this: Task & BenchmarkContext) {
+        await this.tree!.exportChunks();
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          this.tree = new PTree();
+          const data = generateData(10000, "export", () =>
+            createLargeValue(512)
+          );
+          await this.tree.insertBatch(data as any);
+        },
+      }
+    )
+    .add(
+      "Loading 3000 items with 512-byte values",
+      async function (this: Task & BenchmarkContext) {
+        await PTree.load(this.rootHash!, this.chunks!);
+      },
+      {
+        async beforeAll(this: Task & BenchmarkContext) {
+          const tree1 = new PTree();
+          const data = generateData(3000, "load", () => createLargeValue(512));
+          await tree1.insertBatch(data as any);
+          this.rootHash = await tree1.getRootHash();
+          this.chunks = await tree1.exportChunks();
+        },
+      }
+    );
 
-    // --- BATCH INSERTION BENCHMARKS ---
-    .add("10,000 items batch insert (small values)", async () => {
-      const tree = new PTree();
-      const data = generateData(10000, "batch_small", () =>
-        createLargeValue(SMALL_VALUE_SIZE)
-      );
-      await tree.insertBatch(data as any);
-    })
-    .add("1,000 items batch insert (large values, with CDC)", async () => {
-      const tree = new PTree();
-      const data = generateData(1000, "batch_large", () =>
-        createLargeValue(LARGE_VALUE_SIZE)
-      );
-      await tree.insertBatch(data as any);
-    })
-
-    // --- GET (READ) BENCHMARKS ---
-    .add("10,000 individual gets (small values)", async () => {
-      const tree = new PTree();
-      const data = generateData(10000, "get_small", () =>
-        createLargeValue(SMALL_VALUE_SIZE)
-      );
-      await tree.insertBatch(data as any);
-      const shuffledKeys = data
-        .map((item) => item[0])
-        .sort(() => Math.random() - 0.5);
-      for (const key of shuffledKeys) {
-        await tree.get(key);
-      }
-    })
-    .add("1,000 individual gets (large values, with CDC)", async () => {
-      const tree = new PTree();
-      const data = generateData(1000, "get_large", () =>
-        createLargeValue(LARGE_VALUE_SIZE)
-      );
-      await tree.insertBatch(data as any);
-      const shuffledKeys = data
-        .map((item) => item[0])
-        .sort(() => Math.random() - 0.5);
-      for (const key of shuffledKeys) {
-        await tree.get(key);
-      }
-    })
-
-    // --- DELETION BENCHMARKS ---
-    .add("1,000 individual deletes", async () => {
-      const tree = new PTree();
-      const data = generateData(1000, "delete", () =>
-        createLargeValue(SMALL_VALUE_SIZE)
-      );
-      await tree.insertBatch(data as any);
-      const shuffledKeys = data
-        .map((item) => item[0])
-        .sort(() => Math.random() - 0.5);
-      for (const key of shuffledKeys) {
-        await tree.delete(key);
-      }
-    })
-
-    // --- ADVANCED: DIFF BENCHMARKS ---
-    .add("Diff with 1 modification in 5000 items", async () => {
-      const tree = new PTree();
-      const count = 5000;
-      const data = generateData(count, "diff_small", () =>
-        createLargeValue(100)
-      );
-      await tree.insertBatch(data as any);
-      const hash1 = await tree.getRootHash();
-      await tree.insert(toU8("diff_small_00001"), toU8("new_value"));
-      const hash2 = await tree.getRootHash();
-      await tree.diffRoots(hash1, hash2);
-    })
-    .add("Diff with 10% modifications in 5000 items", async () => {
-      const tree = new PTree();
-      const count = 5000;
-      const data = generateData(count, "diff_large_change", () =>
-        createLargeValue(100)
-      );
-      await tree.insertBatch(data as any);
-      const hash1 = await tree.getRootHash();
-      for (let i = 0; i < count / 10; i++) {
-        const key = toU8(`diff_large_change_${String(i).padStart(5, "0")}`);
-        await tree.insert(key, toU8(`new_value_${i}`));
-      }
-      const hash2 = await tree.getRootHash();
-      await tree.diffRoots(hash1, hash2);
-    })
-
-    // --- ADVANCED: ITERATION BENCHMARKS ---
-    .add("Full iteration over 10000 items", async () => {
-      const tree = new PTree();
-      const data = generateData(10000, "iter", () => createLargeValue(100));
-      await tree.insertBatch(data as any);
-      const cursor = await tree.cursorStart();
-      while (true) {
-        const res = await cursor.next();
-        if (res.done) break;
-      }
-    })
-
-    // --- ADVANCED: PERSISTENCE BENCHMARKS ---
-    .add("Exporting 10000 items with 512-byte values", async () => {
-      const tree = new PTree();
-      const data = generateData(10000, "export", () => createLargeValue(512));
-      await tree.insertBatch(data as any);
-      await tree.exportChunks();
-    })
-    .add("Loading 3000 items with 512-byte values", async () => {
-      const tree1 = new PTree();
-      const data = generateData(3000, "load", () => createLargeValue(512));
-      await tree1.insertBatch(data as any);
-      const rootHash = await tree1.getRootHash();
-      const chunks = await tree1.exportChunks();
-      await PTree.load(rootHash, chunks);
-    });
-  // --- Progress Indicator Setup ---
+  // --- Progress Indicator & Runner (code is unchanged) ---
   const spinner = ora({ spinner: "dots", color: "yellow" });
   const totalBenchmarks = bench.tasks.length;
   let currentTaskIndex = 0;
@@ -213,7 +301,6 @@ async function main() {
     );
   });
 
-  // --- Run Benchmarks ---
   await bench.run();
 
   console.log("\n--- Performance Benchmark Results ---");
@@ -227,7 +314,6 @@ async function main() {
   console.log("\n✅ All benchmarks complete.");
 }
 
-// Modified to return its output instead of logging directly
 async function runStorageFootprintBenchmark(): Promise<string[]> {
   const output: string[] = [];
   const tree = new PTree();
@@ -266,10 +352,6 @@ async function runStorageFootprintBenchmark(): Promise<string[]> {
   return output;
 }
 
-// --- SCRIPT EXECUTION ---
-// Note: To keep the code above clean, I've omitted the full benchmark definitions.
-// You should only need to add the `ora` logic to your existing, complete file.
-// The omitted parts are marked with /* ... */
 main().catch((e) => {
   console.error(e);
 });
