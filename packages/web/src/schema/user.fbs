@@ -1,0 +1,20 @@
+// schemas/user.fbs
+
+namespace App.Data;
+
+// Use 'table' instead of 'struct' because it contains strings
+table Profile {
+  avatar_url: string;
+  website: string;
+}
+
+// Define the main table
+table User {
+  id: string (key);
+  name: string;
+  age: int;
+  profile: Profile; // Embed the table
+  tags: [string];
+}
+
+root_type User;

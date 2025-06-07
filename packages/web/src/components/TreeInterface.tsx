@@ -29,6 +29,7 @@ import { GarbageCollectionComponent } from "./treeOperations/GarbageCollection";
 import { ProllyFilePanel } from "./treeOperations/FilePanel";
 import TreeManagement from "./tree-management";
 import { AddEntryDialog } from "./treeOperations/AddEntryDialog";
+import { TestComponent } from "./test-component";
 // import { RenameDialog } from "./treeOperations/RenameDialog";
 
 interface TreeInterfaceProps {
@@ -66,9 +67,10 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
           defaultValue={defaultTab}
           className="w-full min-h-0 flex flex-col"
         >
-          <TabsList className="grid w-full grid-cols-2 mb-2 grid-rows-1 h-8 ">
+          <TabsList className="grid w-full grid-cols-3 mb-2 grid-rows-1 h-8 ">
             <TabsTrigger value="scan">Scan</TabsTrigger>
             <TabsTrigger value="management">Management</TabsTrigger>
+            <TabsTrigger value="test">Test</TabsTrigger>
           </TabsList>
 
           <TabsContent
@@ -91,6 +93,10 @@ export function TreeInterface({ treeState }: TreeInterfaceProps) {
 
           <TabsContent value="management" className="pt-4">
             <TreeManagement treeState={treeState} />
+          </TabsContent>
+
+          <TabsContent value="test" className="pt-4">
+            <TestComponent />
           </TabsContent>
         </Tabs>
       </CardContent>

@@ -137,9 +137,6 @@ export const ScanEntries: React.FC<ScanEntriesProps> = ({
   const parentRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLTableElement>(null);
 
-  console.log({
-    key: ["tree", treePath, currentRoot, "count"],
-  });
   const { data: unfilteredTotalItems, isLoading: isLoadingUnfilteredCount } =
     useQuery<number, Error, number, readonly (string | null)[]>({
       queryKey: ["tree", treePath, currentRoot, "count"],
