@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-import { PTree, PTreeCursor } from "../dist/prolly_rust.js";
+import { PTree, PTreeCursor } from "../dist/node/prolly_rust.js";
 import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
 
 beforeAll(async () => {

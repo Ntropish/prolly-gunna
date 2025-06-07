@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { PTree, type ScanOptions, type ScanPage } from "../dist/prolly_rust.js";
+import {
+  PTree,
+  type ScanOptions,
+  type ScanPage,
+} from "../dist/node/prolly_rust.js";
 
 // Assuming you have these helpers, or define them here/import them
 // from a shared test utility file.

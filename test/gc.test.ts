@@ -1,6 +1,6 @@
 // packages/prolly-test/src/prolly.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
-import { PTree } from "../dist/prolly_rust.js";
+import { PTree } from "../dist/node/prolly_rust.js";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();
