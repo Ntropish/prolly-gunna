@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import {
-  WasmProllyTree,
-  type ScanOptions,
-  type WasmScanPage,
-} from "../dist/prolly_rust.js";
+import { PTree, type ScanOptions, type ScanPage } from "../dist/prolly_rust.js";
 
 // Assuming you have these helpers, or define them here/import them
 // from a shared test utility file.
@@ -195,8 +191,8 @@ async function jsPromiseToScanPageProcessed(promise: Promise<any>): Promise<{
   };
 }
 
-describe("WasmProllyTree Scanning (scanItems)", () => {
-  let tree: WasmProllyTree;
+describe("PTree Scanning (scanItems)", () => {
+  let tree: PTree;
   const testDataAll = createTestItems(25, "item", "value"); // item_000 to item_024
 
   beforeAll(async () => {
@@ -204,7 +200,7 @@ describe("WasmProllyTree Scanning (scanItems)", () => {
   });
 
   beforeEach(async () => {
-    tree = new WasmProllyTree();
+    tree = new PTree();
     for (const item of testDataAll) {
       await tree.insert(item.key, item.value);
     }
@@ -480,7 +476,7 @@ describe("WasmProllyTree Scanning (scanItems)", () => {
   });
 
   it("should return empty page for scan on empty tree", async () => {
-    const emptyTree = new WasmProllyTree();
+    const emptyTree = new PTree();
     await emptyTree.commit();
     const page = await jsPromiseToScanPageProcessed(emptyTree.scanItems({}));
     expect(page.items.length).toBe(0);
@@ -497,7 +493,7 @@ describe("WasmProllyTree Scanning (scanItems)", () => {
 
   // --- Tests for Prefix Scans (Simulated with Bounds) ---
   it("should simulate prefix scan with startBound and endBound", async () => {
-    const prefixTree = new WasmProllyTree();
+    const prefixTree = new PTree();
     const appleData = [
       { key: toU8("apple_01"), value: toU8("red_apple") },
       { key: toU8("apple_02"), value: toU8("green_apple") },

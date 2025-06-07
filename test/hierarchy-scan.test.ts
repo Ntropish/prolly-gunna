@@ -2,9 +2,9 @@
 
 import { describe, it, expect, beforeEach } from "vitest"; // Removed beforeAll as it wasn't strictly used for WASM init here
 import {
-  WasmProllyTree,
+  PTree,
   HierarchyScanOptions,
-  WasmHierarchyItem,
+  HierarchyItem,
 } from "../dist/prolly_rust.js"; // Removed initSync, assuming global or other setup
 // Updated import to use functions from the provided utils.ts
 import { toU8, u8ToString, formatU8Array, expectU8Eq } from "./lib/utils";
@@ -12,10 +12,10 @@ import { toU8, u8ToString, formatU8Array, expectU8Eq } from "./lib/utils";
 // Assuming WASM initialization is handled globally or in a dedicated setup file for your test environment.
 
 describe("ProllyTree Hierarchy Scan", () => {
-  let tree: WasmProllyTree;
+  let tree: PTree;
 
   beforeEach(async () => {
-    tree = new WasmProllyTree();
+    tree = new PTree();
   });
 
   it("should return an empty array for an empty tree", async () => {
@@ -39,7 +39,7 @@ describe("ProllyTree Hierarchy Scan", () => {
 
     const nodeItem = result.items.find(
       (item) => item.type === "Node"
-    ) as Extract<WasmHierarchyItem, { type: "Node" }>;
+    ) as Extract<HierarchyItem, { type: "Node" }>;
     expect(nodeItem).toBeDefined();
     if (nodeItem) {
       expect(nodeItem.isLeaf).toBe(true);
@@ -55,7 +55,7 @@ describe("ProllyTree Hierarchy Scan", () => {
 
     const leafEntryItem = result.items.find(
       (item) => item.type === "LeafEntry"
-    ) as Extract<WasmHierarchyItem, { type: "LeafEntry" }>;
+    ) as Extract<HierarchyItem, { type: "LeafEntry" }>;
     expect(leafEntryItem).toBeDefined();
     if (leafEntryItem) {
       expectU8Eq(
@@ -71,7 +71,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should scan a tree with one internal node and two leaf children (small fanout)", async () => {
-    const treeWithSmallFanout = await WasmProllyTree.newWithConfig(2, 1); // (target, min)
+    const treeWithSmallFanout = await PTree.newWithConfig(2, 1); // (target, min)
 
     await treeWithSmallFanout.insert(toU8("key00"), toU8("val00"));
     await treeWithSmallFanout.insert(toU8("key01"), toU8("val01"));
@@ -95,7 +95,7 @@ describe("ProllyTree Hierarchy Scan", () => {
 
     const rootNodeItem = result.items.find(
       (item) => item.type === "Node" && item.level === 1
-    ) as Extract<WasmHierarchyItem, { type: "Node" }>;
+    ) as Extract<HierarchyItem, { type: "Node" }>;
     expect(rootNodeItem).toBeDefined();
     if (rootNodeItem) {
       expect(rootNodeItem.isLeaf).toBe(false);
@@ -109,7 +109,7 @@ describe("ProllyTree Hierarchy Scan", () => {
 
     const internalEntries = result.items.filter(
       (item) => item.type === "InternalEntry"
-    ) as Extract<WasmHierarchyItem, { type: "InternalEntry" }>[];
+    ) as Extract<HierarchyItem, { type: "InternalEntry" }>[];
     expect(internalEntries.length).toBe(2);
     internalEntries.forEach((entry) => {
       if (rootNodeItem)
@@ -122,12 +122,12 @@ describe("ProllyTree Hierarchy Scan", () => {
 
     const leafNodeItems = result.items.filter(
       (item) => item.type === "Node" && item.isLeaf === true
-    ) as Extract<WasmHierarchyItem, { type: "Node" }>[];
+    ) as Extract<HierarchyItem, { type: "Node" }>[];
     expect(leafNodeItems.length).toBe(2);
 
     const leafDataEntries = result.items.filter(
       (item) => item.type === "LeafEntry"
-    ) as Extract<WasmHierarchyItem, { type: "LeafEntry" }>[];
+    ) as Extract<HierarchyItem, { type: "LeafEntry" }>[];
     expect(leafDataEntries.length).toBe(3);
 
     const firstLeafNode = leafNodeItems[0];
@@ -137,7 +137,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should respect maxDepth option", async () => {
-    const treeWithDepth = await WasmProllyTree.newWithConfig(2, 1);
+    const treeWithDepth = await PTree.newWithConfig(2, 1);
     await treeWithDepth.insert(toU8("a"), toU8("1"));
     await treeWithDepth.insert(toU8("b"), toU8("2"));
     await treeWithDepth.insert(toU8("c"), toU8("3"));
@@ -145,7 +145,7 @@ describe("ProllyTree Hierarchy Scan", () => {
     let result = await treeWithDepth.hierarchyScan({ maxDepth: 0 });
     const rootNode = result.items.find(
       (item) => item.type === "Node" && item.level === 1
-    ) as Extract<WasmHierarchyItem, { type: "Node" }>;
+    ) as Extract<HierarchyItem, { type: "Node" }>;
     // Root node (level 1) should be present with maxDepth: 0
     expect(rootNode).toBeDefined();
 
@@ -175,7 +175,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should respect limit option", async () => {
-    const treeWithLimit = await WasmProllyTree.newWithConfig(2, 1);
+    const treeWithLimit = await PTree.newWithConfig(2, 1);
     await treeWithLimit.insert(toU8("k1"), toU8("v1"));
     await treeWithLimit.insert(toU8("k2"), toU8("v2"));
     await treeWithLimit.insert(toU8("k3"), toU8("v3"));

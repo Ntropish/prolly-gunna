@@ -1,5 +1,5 @@
 import { describe, it, beforeAll } from "vitest";
-import { WasmProllyTree } from "../dist/prolly_rust.js";
+import { PTree } from "../dist/prolly_rust.js";
 import { toU8 } from "./lib/utils";
 
 // Helper to generate deterministic key-value pairs
@@ -43,7 +43,7 @@ beforeAll(async () => {
   // await init();
 });
 
-describe("WasmProllyTree Benchmarks", () => {
+describe("PTree Benchmarks", () => {
   const SMALL_VALUE_SIZE = 100; // 100 bytes
   const LARGE_VALUE_SIZE = 32 * 1024; // 32 KB, likely to trigger CDC
   const BENCHMARK_TIMEOUT = 60000; // 60 seconds for each benchmark
@@ -53,7 +53,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 1,000 individual inserts (small values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const data = generateData(1000, "insert_small", () =>
         createLargeValue(SMALL_VALUE_SIZE)
       );
@@ -73,7 +73,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 1,000 individual inserts (large values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const data = generateData(1000, "insert_large", () =>
         createLargeValue(LARGE_VALUE_SIZE)
       );
@@ -95,7 +95,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 10,000 items via insertBatch (small values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const data = generateData(10000, "batch_small", () =>
         createLargeValue(SMALL_VALUE_SIZE)
       );
@@ -113,7 +113,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 1,000 items via insertBatch (large values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const data = generateData(1000, "batch_large", () =>
         createLargeValue(LARGE_VALUE_SIZE)
       );
@@ -133,7 +133,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 10,000 individual gets (small values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 10000;
       const data = generateData(count, "get_small", () =>
         createLargeValue(SMALL_VALUE_SIZE)
@@ -157,7 +157,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 1,000 individual gets (large values)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 1000;
       const data = generateData(count, "get_large", () =>
         createLargeValue(LARGE_VALUE_SIZE)
@@ -185,7 +185,7 @@ describe("WasmProllyTree Benchmarks", () => {
   it(
     "Benchmark: 1,000 individual deletes",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 1000;
       const data = generateData(count, "delete", () =>
         createLargeValue(SMALL_VALUE_SIZE)
@@ -207,13 +207,13 @@ describe("WasmProllyTree Benchmarks", () => {
   );
 });
 
-describe("WasmProllyTree Advanced Benchmarks", () => {
+describe("PTree Advanced Benchmarks", () => {
   const BENCHMARK_TIMEOUT = 100000; // 100 seconds
 
   it(
     "Benchmark: Diff performance (small change)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 5000;
       const data = generateData(count, "diff_small_change", () =>
         createLargeValue(100)
@@ -238,7 +238,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
   it(
     "Benchmark: Diff performance (10% change)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 5000;
       const data = generateData(count, "diff_large_change", () =>
         createLargeValue(100)
@@ -268,7 +268,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
   it(
     "Benchmark: Full iteration with cursor over 10,000 items",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 10000;
       const data = generateData(count, "iter", () => createLargeValue(100));
       await tree.insertBatch(data as any);
@@ -289,7 +289,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
   it(
     "Benchmark: Export performance of a large tree",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 10000;
       const data = generateData(count, "export", () => createLargeValue(512));
       await tree.insertBatch(data as any);
@@ -307,7 +307,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
   it(
     "Benchmark: Load performance of a large tree",
     async () => {
-      const tree1 = new WasmProllyTree();
+      const tree1 = new PTree();
       const count = 10000;
       const data = generateData(count, "load", () => createLargeValue(512));
       await tree1.insertBatch(data as any);
@@ -317,7 +317,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
       await runBenchmark(
         `Loading ${count} items with 512-byte values`,
         async () => {
-          await WasmProllyTree.load(rootHash, chunks);
+          await PTree.load(rootHash, chunks);
         }
       );
     },
@@ -327,7 +327,7 @@ describe("WasmProllyTree Advanced Benchmarks", () => {
   it(
     "Benchmark: Structural Sharing Footprint (a proxy for memory/storage savings)",
     async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const count = 3000;
       const data = generateData(count, "sharing", () => createLargeValue(1024));
       await tree.insertBatch(data as any);

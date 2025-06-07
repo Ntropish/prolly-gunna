@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-import init, {
-  WasmProllyTree,
-  WasmProllyTreeCursor,
-} from "../dist/prolly_rust.js";
+import { PTree, PTreeCursor } from "../dist/prolly_rust.js";
 import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
 
 beforeAll(async () => {
@@ -11,9 +8,9 @@ beforeAll(async () => {
   // await init();
 });
 
-describe("WasmProllyTree", () => {
+describe("PTree", () => {
   it("should allow creating, inserting, and getting values", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
 
     const key1 = toU8("hello");
     const val1 = toU8("world");
@@ -34,7 +31,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should update root hash after inserts", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const initialHash = (await tree.getRootHash()) as Uint8Array | null;
     expect(initialHash).toBeNull();
 
@@ -53,7 +50,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should handle many inserts potentially causing splits", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const count = 100; // Should be enough to trigger splits with default fanout 32
     const expected = new Map<string, Uint8Array>();
 
@@ -80,7 +77,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should support load and export", async () => {
-    const tree1 = new WasmProllyTree();
+    const tree1 = new PTree();
     await tree1.insert(toU8("data1"), toU8("value1"));
     await tree1.insert(toU8("data2"), toU8("value2"));
 
@@ -91,7 +88,7 @@ describe("WasmProllyTree", () => {
     expect(chunks.size).toBeGreaterThan(0); // Should have at least the root node chunk
 
     // Create a new tree loaded from the exported state
-    const tree2 = await WasmProllyTree.load(rootHash, chunks);
+    const tree2 = await PTree.load(rootHash, chunks);
 
     // Verify data in loaded tree
     const val1Loaded = (await tree2.get(toU8("data1"))) as Uint8Array | null;
@@ -104,7 +101,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should overwrite existing values on insert with the same key", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key = toU8("overwrite_key");
     const val1 = toU8("initial_value");
     const val2 = toU8("overwritten_value");
@@ -126,7 +123,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should handle empty keys and values", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const emptyKey = toU8("");
     const emptyVal = toU8("");
     const normalKey = toU8("key");
@@ -143,7 +140,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should maintain lexicographical order", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const keys = ["C", "A", "B", "D", "E"]; // Insert out of order
 
     for (const k of keys) {
@@ -165,19 +162,19 @@ describe("WasmProllyTree", () => {
     // B-trees are definitely order-dependent. Prolly Trees *should* be less so,
     // but let's test if order matters *at all* in the current implementation.
 
-    const tree1 = new WasmProllyTree();
+    const tree1 = new PTree();
     await tree1.insert(toU8("a"), toU8("1"));
     await tree1.insert(toU8("b"), toU8("2"));
     await tree1.insert(toU8("c"), toU8("3"));
     const hash1 = (await tree1.getRootHash()) as Uint8Array | null;
 
-    const tree2 = new WasmProllyTree();
+    const tree2 = new PTree();
     await tree2.insert(toU8("c"), toU8("3"));
     await tree2.insert(toU8("a"), toU8("1"));
     await tree2.insert(toU8("b"), toU8("2"));
     const hash2 = (await tree2.getRootHash()) as Uint8Array | null;
 
-    const tree3 = new WasmProllyTree(); // Same data as tree1, check consistency
+    const tree3 = new PTree(); // Same data as tree1, check consistency
     await tree3.insert(toU8("a"), toU8("1"));
     await tree3.insert(toU8("b"), toU8("2"));
     await tree3.insert(toU8("c"), toU8("3"));
@@ -200,7 +197,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should handle keys/values with varied lengths and binary data", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
 
     const keyShort = toU8("short");
     const valShort = toU8("sv");
@@ -228,7 +225,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should trigger a root leaf split and verify content", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     // Default fanout is 32. Insert 33 items to force a split.
     const count = 33;
     const inserted = new Map<string, string>();
@@ -254,7 +251,7 @@ describe("WasmProllyTree", () => {
     const chunks = (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>;
     expect(chunks.size).toBeGreaterThan(2); // Should have at least old root (now left leaf), right leaf, new root internal node
 
-    const tree2 = await WasmProllyTree.load(rootHash!, chunks);
+    const tree2 = await PTree.load(rootHash!, chunks);
     const keyToTest = `split_key_${String(count - 1).padStart(2, "0")}`; // Test last key
     const retrieved2 = (await tree2.get(toU8(keyToTest))) as Uint8Array | null;
     expectU8Eq(retrieved2, toU8(inserted.get(keyToTest)!));
@@ -265,7 +262,7 @@ describe("WasmProllyTree", () => {
   // which might be too slow for a unit test. This could be a longer-running integration test.
   it.skip("should trigger internal node splits (large test)", async () => {
     // Skipped by default due to size/time
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const count = 1025; // Fanout 32 * 32 + 1 (approximate threshold)
     for (let i = 0; i < count; i++) {
       const keyStr = `internal_split_${String(i).padStart(4, "0")}`;
@@ -282,7 +279,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should return consistent root hash if no modifications occur", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     await tree.insert(toU8("a"), toU8("1"));
     const hash1 = (await tree.getRootHash()) as Uint8Array | null;
 
@@ -295,7 +292,7 @@ describe("WasmProllyTree", () => {
   });
 
   it("should allow overwriting then getting other keys", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     await tree.insert(toU8("keyA"), toU8("valA1"));
     await tree.insert(toU8("keyB"), toU8("valB1"));
 
@@ -313,7 +310,7 @@ describe("WasmProllyTree", () => {
 
   describe("insertBatch", () => {
     it("should insert multiple items into an empty tree", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const itemsToInsert = [
         { k: "batch_key1", v: "batch_val1" },
         { k: "batch_key2", v: "batch_val2" },
@@ -325,7 +322,7 @@ describe("WasmProllyTree", () => {
         toU8(item.v),
       ]);
 
-      // The WasmProllyTree.insertBatch expects a js_sys::Array directly.
+      // The PTree.insertBatch expects a js_sys::Array directly.
       // In a pure JS/TS test environment, you might need to construct it carefully
       // or ensure your Wasm binding layer handles plain JS arrays.
       // For vitest, directly passing a JS array of Uint8Array pairs should work
@@ -345,7 +342,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("should insert multiple items into a non-empty tree", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       await tree.insert(toU8("existing_key"), toU8("existing_val"));
       const initialRootHash = await tree.getRootHash();
 
@@ -378,7 +375,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("should overwrite existing keys during batch insert", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       await tree.insert(toU8("overwrite_key1"), toU8("initial_val1"));
       await tree.insert(toU8("another_key"), toU8("initial_other_val"));
 
@@ -409,7 +406,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("should handle an empty batch without error", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       await tree.insert(toU8("key_before_empty_batch"), toU8("val_before"));
       const initialRootHash = await tree.getRootHash();
 
@@ -430,7 +427,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("should insert a larger batch potentially causing splits", async () => {
-      const tree = new WasmProllyTree(); // Default config
+      const tree = new PTree(); // Default config
       const batchSize = 50; // Enough to likely cause splits
       const itemsToInsert = [] as { k: string; v: string }[];
       for (let i = 0; i < batchSize; i++) {
@@ -468,7 +465,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("insertBatch should correctly handle keys with varied lengths and binary data", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const itemsToInsert: [
         {
           k: string;
@@ -520,7 +517,7 @@ describe("WasmProllyTree", () => {
     // This depends on how `insertBatch` in `lib.rs` handles errors.
     // The current `lib.rs` implementation for `insertBatch` returns a rejected Promise for malformed input.
     it("insertBatch should reject promise for malformed input array", async () => {
-      const tree = new WasmProllyTree();
+      const tree = new PTree();
       const malformedItems = [
         [toU8("key1"), toU8("value1")],
         "not_an_array", // Malformed entry
@@ -569,7 +566,7 @@ describe("WasmProllyTree", () => {
     });
   });
 
-  describe("WasmProllyTree little fan", () => {
+  describe("PTree little fan", () => {
     const FANOUT = 4; // Target Fanout
     const MIN_FANOUT = 2; // Min Fanout
 
@@ -577,7 +574,7 @@ describe("WasmProllyTree", () => {
       // Setup: Need two leaf nodes after a split, each with minimum entries (2), then delete one
       // Target fanout 4, min fanout 2. Split at 5 elements.
       // Insert 5 keys to cause split (left leaf 2, right leaf 3)
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
       const keys = ["k01", "k02", "k03", "k04", "k05"];
       for (const k of keys) {
         await tree.insert(toU8(k), toU8(`v_${k}`));
@@ -619,7 +616,7 @@ describe("WasmProllyTree", () => {
       // Setup: Left leaf with 1 (underflow), Right leaf with 3 (can lend)
       // Target fanout 4, min fanout 2. Split at 5 elements.
       // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
       const keys = ["k01", "k02", "k03", "k04", "k05"];
       for (const k of keys) {
         await tree.insert(toU8(k), toU8(`v_${k}`));
@@ -651,7 +648,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("DELETE: should empty the tree when deleting the last element", async () => {
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
       const key = toU8("last");
       await tree.insert(key, toU8("value"));
 
@@ -665,7 +662,7 @@ describe("WasmProllyTree", () => {
     });
 
     it("should handle interleaved inserts and deletes", async () => {
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
       const N = 20; // Enough to cause some splits/merges potentially
       const present = new Set<string>();
 
@@ -711,7 +708,7 @@ describe("WasmProllyTree", () => {
       // Renamed slightly for clarity
       const FANOUT = 4;
       const MIN_FANOUT = 2;
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
 
       // --- Setup ---
       console.log("--- TEST: Setup ---");
@@ -816,7 +813,7 @@ describe("WasmProllyTree", () => {
     it("DELETE: should correctly handle deleting a boundary key", async () => {
       const FANOUT = 4;
       const MIN_FANOUT = 2;
-      const tree = await WasmProllyTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
 
       // Setup: Insert k01, k02, k03, k04, k05
       // State: root -> [L(k01, k02){bd=k02}, R(k03, k04, k05){bd=k05}]
@@ -891,13 +888,13 @@ function createLargeTestData(size: number, seed: number = 42): Uint8Array {
   return buffer;
 }
 
-describe("WasmProllyTree CDC", () => {
+describe("PTree CDC", () => {
   // Default config thresholds (approx based on Rust defaults):
   const MAX_INLINE = 1024;
   const AVG_CHUNK = 16 * 1024;
 
   it("CDC: should store small values inline", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key = toU8("small_value_key");
     const value = createLargeTestData(MAX_INLINE - 10); // Just below threshold
 
@@ -928,7 +925,7 @@ describe("WasmProllyTree CDC", () => {
   });
 
   it("CDC: should chunk value slightly above inline threshold", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key = toU8("chunked_value_key_1");
     const value = createLargeTestData(MAX_INLINE + 100); // Just above threshold
 
@@ -967,7 +964,7 @@ describe("WasmProllyTree CDC", () => {
   });
 
   it("CDC: should chunk large value into multiple chunks", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key = toU8("multi_chunk_value_key");
     // Create value larger than average chunk size, likely to split
     const value = createLargeTestData(AVG_CHUNK * 2 + 500);
@@ -999,7 +996,7 @@ describe("WasmProllyTree CDC", () => {
   });
 
   it("CDC: should deduplicate identical large values", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key1 = toU8("dedup_key_1");
     const key2 = toU8("dedup_key_2");
     // Value large enough to be chunked (likely multiple chunks)
@@ -1081,10 +1078,10 @@ const expectKeyArrayEq = (
 };
 
 // --- New Describe Block for Cursor Tests ---
-describe("WasmProllyTreeCursor", () => {
+describe("PTreeCursor", () => {
   it("should iterate over an empty tree", async () => {
-    const tree = new WasmProllyTree();
-    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const tree = new PTree();
+    const cursor = (await tree.cursorStart()) as PTreeCursor;
     const result = await cursor.next();
 
     expect(result.done).toBe(true);
@@ -1092,7 +1089,7 @@ describe("WasmProllyTreeCursor", () => {
   });
 
   it("should iterate over a single-leaf tree in order", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const items = [
       { k: "b", v: "vb" },
       { k: "a", v: "va" },
@@ -1105,7 +1102,7 @@ describe("WasmProllyTreeCursor", () => {
       await tree.insert(toU8(item.k), toU8(item.v));
     }
 
-    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const cursor = (await tree.cursorStart()) as PTreeCursor;
     const collectedKeys: Uint8Array[] = [];
     const collectedValues: Uint8Array[] = [];
 
@@ -1131,7 +1128,7 @@ describe("WasmProllyTreeCursor", () => {
   });
 
   it("should iterate over a multi-level tree (split) in order", async () => {
-    const tree = await WasmProllyTree.newWithConfig(4, 2); // Use small fanout
+    const tree = await PTree.newWithConfig(4, 2); // Use small fanout
     const count = 10;
     const expectedItems: { k: Uint8Array; v: Uint8Array }[] = [];
 
@@ -1145,7 +1142,7 @@ describe("WasmProllyTreeCursor", () => {
     }
     expectedItems.sort((a, b) => Buffer.from(a.k).compare(Buffer.from(b.k))); // Sort expected items by key
 
-    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const cursor = (await tree.cursorStart()) as PTreeCursor;
     const collectedItems: { k: Uint8Array; v: Uint8Array }[] = [];
 
     for (let iterCount = 0; iterCount < 20; iterCount++) {
@@ -1177,7 +1174,7 @@ describe("WasmProllyTreeCursor", () => {
   }, 10_000);
 
   it("should seek to a specific key", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const items = ["a", "b", "c", "d", "e", "f", "g"].map((k) => ({
       k,
       v: `v${k}`,
@@ -1185,7 +1182,7 @@ describe("WasmProllyTreeCursor", () => {
     for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
 
     const seekKey = toU8("d");
-    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+    const cursor = (await tree.seek(seekKey)) as PTreeCursor;
 
     const collectedKeys: string[] = [];
     while (true) {
@@ -1199,24 +1196,24 @@ describe("WasmProllyTreeCursor", () => {
   });
 
   it("should seek past the last key", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const items = ["a", "b", "c"].map((k) => ({ k, v: `v${k}` }));
     for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
 
     const seekKey = toU8("d"); // Key after all existing keys
-    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+    const cursor = (await tree.seek(seekKey)) as PTreeCursor;
 
     const result = await cursor.next();
     expect(result.done).toBe(true);
   });
 
   it("should seek to the first key", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const items = ["b", "c", "a"].map((k) => ({ k, v: `v${k}` })); // Insert out of order
     for (const item of items) await tree.insert(toU8(item.k), toU8(item.v));
 
     const seekKey = toU8("a"); // Seek to first actual key
-    const cursor = (await tree.seek(seekKey)) as WasmProllyTreeCursor;
+    const cursor = (await tree.seek(seekKey)) as PTreeCursor;
 
     const collectedKeys: string[] = [];
     while (true) {
@@ -1229,7 +1226,7 @@ describe("WasmProllyTreeCursor", () => {
   });
 
   it("should iterate correctly over chunked values (CDC)", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const keySmall = toU8("small");
     const valSmall = toU8("v_small");
     const keyLarge = toU8("large");
@@ -1245,7 +1242,7 @@ describe("WasmProllyTreeCursor", () => {
     const expectedKeys = [keyLarge, keyMiddle, keySmall]; // Expected iteration order
     const expectedValues = [valLarge, valMiddle, valSmall];
 
-    const cursor = (await tree.cursorStart()) as WasmProllyTreeCursor;
+    const cursor = (await tree.cursorStart()) as PTreeCursor;
     const collectedKeys: Uint8Array[] = [];
     const collectedValues: Uint8Array[] = [];
 
@@ -1317,9 +1314,9 @@ function expectDiffsToMatch(
   expectedDiffs.forEach(findAndCompare);
 }
 
-describe("WasmProllyTree Diff", () => {
+describe("PTree Diff", () => {
   it("should return empty diff for identical trees", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     await tree.insert(toU8("a"), toU8("1"));
     await tree.insert(toU8("b"), toU8("2"));
     const hash1 = (await tree.getRootHash()) as Uint8Array | null;
@@ -1329,7 +1326,7 @@ describe("WasmProllyTree Diff", () => {
   });
 
   it("should return empty diff for two empty trees", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     // Diff null against null
     const diffs = (await tree.diffRoots(null, null)) as JsDiffEntry[];
     expect(diffs).toEqual([]);
@@ -1337,7 +1334,7 @@ describe("WasmProllyTree Diff", () => {
 
   // *** Un-skip and correct additions test ***
   it("should detect additions (diff empty vs non-empty)", async () => {
-    const tree = new WasmProllyTree(); // Use one tree
+    const tree = new PTree(); // Use one tree
     const hash_initial = (await tree.getRootHash()) as Uint8Array | null; // null
 
     await tree.insert(toU8("a"), toU8("1"));
@@ -1358,7 +1355,7 @@ describe("WasmProllyTree Diff", () => {
   });
 
   it("should detect deletions (diff non-empty vs empty)", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     await tree.insert(toU8("a"), toU8("1"));
     await tree.insert(toU8("c"), toU8("3"));
     const hash_initial = (await tree.getRootHash()) as Uint8Array | null;
@@ -1377,7 +1374,7 @@ describe("WasmProllyTree Diff", () => {
   });
 
   it("should detect modifications", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     // State 1
     await tree.insert(toU8("a"), toU8("1"));
     await tree.insert(toU8("b"), toU8("2"));
@@ -1398,7 +1395,7 @@ describe("WasmProllyTree Diff", () => {
   });
 
   it("should detect mixed additions, deletions, modifications", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     // State 1
     await tree.insert(toU8("a"), toU8("val_a"));
     await tree.insert(toU8("b"), toU8("val_b"));
@@ -1427,7 +1424,7 @@ describe("WasmProllyTree Diff", () => {
   });
 
   it("should handle diff with CDC values", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const largeVal1 = createLargeTestData(2000, 1);
     const largeVal2 = createLargeTestData(2500, 2);
 

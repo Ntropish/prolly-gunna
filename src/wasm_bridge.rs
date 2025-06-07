@@ -6,7 +6,7 @@ use js_sys::{Object, Reflect, Uint8Array as JsUint8Array, Array as JsArray};
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)] // Not deriving Serde, this is constructed from core_tree_types::ScanPage
-pub struct WasmScanPage {
+pub struct ScanPage {
     // Internal fields to hold data. These will be populated from core_tree_types::ScanPage.
     items: Vec<(Key, Value)>, // This specific field needs a custom getter for JS
     has_next_page: bool,
@@ -16,8 +16,8 @@ pub struct WasmScanPage {
 }
 
 #[wasm_bindgen]
-impl WasmScanPage {
-    // Note: No #[wasm_bindgen(constructor)] here, as WasmScanPage is created from Rust logic.
+impl ScanPage {
+    // Note: No #[wasm_bindgen(constructor)] here, as ScanPage is created from Rust logic.
 
     #[wasm_bindgen(getter)]
     pub fn items(&self) -> JsArray {
@@ -50,8 +50,8 @@ impl WasmScanPage {
     }
 }
 
-// Conversion from core_tree_types::ScanPage to WasmScanPage
-impl From<core_tree_types::ScanPage> for WasmScanPage {
+// Conversion from core_tree_types::ScanPage to ScanPage
+impl From<core_tree_types::ScanPage> for ScanPage {
     fn from(core_page: core_tree_types::ScanPage) -> Self {
         Self {
             items: core_page.items,
@@ -110,7 +110,7 @@ fn hierarchy_item_to_jsvalue(item: core_tree_types::HierarchyItem) -> Result<JsV
 
 #[wasm_bindgen]
 // Removed Serialize for now, will adjust lib.rs to use JsValue::from()
-pub struct WasmHierarchyScanPage {
+pub struct HierarchyScanPage {
     items_internal: JsArray, // Keep internal name to avoid conflict with getter
     has_next_page_internal: bool,
     // --- Make this private ---
@@ -118,7 +118,7 @@ pub struct WasmHierarchyScanPage {
 }
 
 #[wasm_bindgen]
-impl WasmHierarchyScanPage {
+impl HierarchyScanPage {
     // Constructor for internal use, not exposed to JS directly via wasm_bindgen constructor
     // This is how it's populated from From<core_tree_types::HierarchyScanPage>
     fn new(items: JsArray, has_next_page: bool, next_page_cursor_token: Option<String>) -> Self {
@@ -146,7 +146,7 @@ impl WasmHierarchyScanPage {
     }
 }
 
-impl From<core_tree_types::HierarchyScanPage> for WasmHierarchyScanPage {
+impl From<core_tree_types::HierarchyScanPage> for HierarchyScanPage {
     fn from(core_page: core_tree_types::HierarchyScanPage) -> Self {
         let js_items = JsArray::new_with_length(core_page.items.len() as u32);
         for (i, core_item) in core_page.items.into_iter().enumerate() {
@@ -160,7 +160,7 @@ impl From<core_tree_types::HierarchyScanPage> for WasmHierarchyScanPage {
             }
         }
         // Use the internal constructor pattern
-        WasmHierarchyScanPage::new(
+        HierarchyScanPage::new(
             js_items,
             core_page.has_next_page,
             core_page.next_page_cursor_token,

@@ -1,0 +1,39 @@
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 1,000 individual inserts (large values)
+[BENCH] 1,000 individual inserts (large values, with CDC): 98.2868 ms
+
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 10,000 items via insertBatch (small values)
+[BENCH] 10,000 items batch insert (small values): 401.6543 ms
+
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 1,000 items via insertBatch (large values)
+[BENCH] 1,000 items batch insert (large values, with CDC): 259.2649 ms
+
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 10,000 individual gets (small values)
+[BENCH] 10,000 individual gets (small values): 91.5715 ms
+
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 1,000 individual gets (large values)
+[BENCH] 1,000 individual gets (large values, with CDC): 28.1303 ms
+
+stdout | test/benchmark.test.ts > PTree Benchmarks > Benchmark: 1,000 individual deletes      
+[BENCH] 1,000 individual deletes: 34.9630 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Diff performance (small change)
+[BENCH] Diff with 1 modification in 5000 items: 1.4998 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Diff performance (10% change)
+[BENCH] Diff with 10% modifications in 5000 items: 4.6390 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Full iteration with cursor over 10,000 items
+[BENCH] Full iteration over 10000 items: 26.7819 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Export performance of a large tree
+[BENCH] Exporting 10000 items with 512-byte values: 9499.6061 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Load performance of a large tree
+[BENCH] Loading 10000 items with 512-byte values: 36.5105 ms
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Structural Sharing Footprint (a proxy for memory/storage savings)
+[INFO] Size of initial tree with 3000 items: 81.80 MB
+
+stdout | test/benchmark.test.ts > PTree Advanced Benchmarks > Benchmark: Structural Sharing Footprint (a proxy for memory/storage savings)
+[INFO] Size of tree after 1 modification: 81.82 MB
+[BENCH] Incremental storage cost for 1 modification in 3000 items: 17.19 KB

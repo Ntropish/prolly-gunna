@@ -24,7 +24,7 @@ use crate::store::ChunkStore;
 
 // Corrected use statements
 use crate::tree::types as core_tree_types; // For core ScanArgs and ScanPage
-use serde_wasm_bindgen;                    // For from_value / to_value
+use serde_wasm_bindgen;                   // For from_value / to_value
 
 use crate::tree::ProllyTree;
 use crate::store::InMemoryStore;
@@ -100,20 +100,20 @@ extern "C" {
 
 
 /// Public wrapper for ProllyTree exported to JavaScript.
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = "PTree")]
 #[derive(Clone)]
-pub struct WasmProllyTree {
+pub struct PTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>,
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = "PTreeCursor")]
 #[derive(Clone)]
-pub struct WasmProllyTreeCursor {
+pub struct PTreeCursor {
     inner: Arc<tokio::sync::Mutex<tree::Cursor<InMemoryStore>>>,
 }
 
 #[wasm_bindgen]
-impl WasmProllyTreeCursor {
+impl PTreeCursor {
     #[wasm_bindgen]
     pub fn next(&self) -> PromiseCursorNextReturn {
         let cursor_clone = Arc::clone(&self.inner);
@@ -153,7 +153,7 @@ impl WasmProllyTreeCursor {
 }
 
 #[wasm_bindgen]
-impl WasmProllyTree {
+impl PTree {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         let config = TreeConfig::default();
@@ -224,7 +224,7 @@ impl WasmProllyTree {
 
             tree_result
                 .map(|tree| {
-                    WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
+                    PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
                 })
                 .map_err(prolly_error_to_jsvalue)
         };
@@ -340,7 +340,7 @@ impl WasmProllyTree {
     }
 
     #[wasm_bindgen(js_name = newWithConfig)]
-    pub fn new_with_config(target_fanout: usize, min_fanout: usize) -> Result<WasmProllyTree, JsValue> {
+    pub fn new_with_config(target_fanout: usize, min_fanout: usize) -> Result<PTree, JsValue> {
         let df = TreeConfig::default(); 
         let cfg = TreeConfig { target_fanout, min_fanout, cdc_min_size: df.cdc_min_size, cdc_avg_size: df.cdc_avg_size, cdc_max_size: df.cdc_max_size, max_inline_value_size: df.max_inline_value_size };
         if cfg.min_fanout==0||cfg.target_fanout<cfg.min_fanout*2||cfg.target_fanout==0 {
@@ -354,8 +354,8 @@ impl WasmProllyTree {
         let tree_clone = Arc::clone(&self.inner);
         let future = async move {
              tree_clone.lock().await.cursor_start().await
-                .map(|c| WasmProllyTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
-                .map_err(prolly_error_to_jsvalue)
+                 .map(|c| PTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
+                 .map_err(prolly_error_to_jsvalue)
         };
         wasm_bindgen_futures::future_to_promise(future)
     }
@@ -365,9 +365,9 @@ impl WasmProllyTree {
          let key: Key = key_js.to_vec();
          let tree_clone = Arc::clone(&self.inner);
          let future = async move {
-              tree_clone.lock().await.seek(&key).await
-                 .map(|c| WasmProllyTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
-                 .map_err(prolly_error_to_jsvalue)
+               tree_clone.lock().await.seek(&key).await
+                   .map(|c| PTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
+                   .map_err(prolly_error_to_jsvalue)
          };
         wasm_bindgen_futures::future_to_promise(future)
     }
@@ -436,7 +436,7 @@ impl WasmProllyTree {
     }
 
     #[wasm_bindgen(js_name = scanItems)]
-    pub fn scan_items( &self, options: ScanOptions ) -> PromiseScanItemsFnReturn {        
+    pub fn scan_items( &self, options: ScanOptions ) -> PromiseScanItemsFnReturn {         
         let core_scan_args: core_tree_types::ScanArgs = if options.is_undefined() || options.is_null() {
             core_tree_types::ScanArgs::default()
         } else {
@@ -453,9 +453,9 @@ impl WasmProllyTree {
             tree_clone.lock().await.scan(core_scan_args).await
                 .map_err(prolly_error_to_jsvalue)
                 .map(|core_scan_page| {
-                    let wasm_scan_page_bridge = crate::wasm_bridge::WasmScanPage::from(core_scan_page);
-                    // WasmScanPage is #[wasm_bindgen], so JsValue::from() is correct.
-                    JsValue::from(wasm_scan_page_bridge)
+                    let scan_page_bridge = crate::wasm_bridge::ScanPage::from(core_scan_page);
+                    // ScanPage is #[wasm_bindgen], so JsValue::from() is correct.
+                    JsValue::from(scan_page_bridge)
                 })
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
@@ -497,20 +497,8 @@ impl WasmProllyTree {
             tree_clone.lock().await.hierarchy_scan(core_scan_args).await
                 .map_err(prolly_error_to_jsvalue)
                 .map(|core_hierarchy_page| {
-                    let wasm_page = crate::wasm_bridge::WasmHierarchyScanPage::from(core_hierarchy_page);
-                    // --- This is the crucial change ---
-                    // Since WasmHierarchyScanPage is a #[wasm_bindgen] struct,
-                    // it can be directly converted into a JsValue.
-                    wasm_page.into()
-                    // --- Remove or comment out the old match block ---
-                    // match serde_wasm_bindgen::to_value(&wasm_page) {
-                    //      Ok(js_val) => js_val,
-                    //      Err(e) => {
-                    //         let err_msg = format!("Failed to serialize WasmHierarchyScanPage: {}", e);
-                    //         gloo_console::error!(&err_msg);
-                    //         JsValue::from_str(&err_msg)
-                    //      }
-                    // }
+                    let hierarchy_page_bridge = crate::wasm_bridge::HierarchyScanPage::from(core_hierarchy_page);
+                    JsValue::from(hierarchy_page_bridge)
                 })
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
@@ -578,7 +566,7 @@ impl WasmProllyTree {
 
                     tree_result
                         .map(|tree| {
-                            WasmProllyTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
+                            PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
                         })
                         .map_err(prolly_error_to_jsvalue)
                 }
@@ -588,6 +576,4 @@ impl WasmProllyTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
-
 }
-

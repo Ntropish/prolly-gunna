@@ -34,12 +34,12 @@ export interface ScanOptions {
 export type BatchItem = [Uint8Array, Uint8Array];
 
 /**
- * TypeScript interface for the `WasmScanPage` class exposed from Rust.
- * This MUST match the getters defined in `src/wasm_bridge.rs::WasmScanPage`.
- * When `wasm-bindgen` generates the .d.ts for WasmScanPage, it creates property-like
+ * TypeScript interface for the `ScanPage` class exposed from Rust.
+ * This MUST match the getters defined in `src/wasm_bridge.rs::ScanPage`.
+ * When `wasm-bindgen` generates the .d.ts for ScanPage, it creates property-like
  * accessors for getters.
  */
-export interface IWasmScanPage {
+export interface IScanPage {
   /** Items in the current page. Accesses the `items()` getter in Rust. */
   readonly items: BatchItem[];
   /** Indicates if there is a next page. Accesses the `hasNextPage()` getter. */
@@ -85,18 +85,18 @@ export type TriggerGcFnReturn = number;
 /** The `getTreeConfig` method resolves to the tree's current configuration. */
 export type GetTreeConfigFnReturn = TreeConfigOptions;
 /** The `scanItems` method resolves to a page of scanned items. */
-export type ScanItemsFnReturn = IWasmScanPage;
+export type ScanItemsFnReturn = IScanPage;
 /** The `countAllItems` method resolves to the total count of items in the tree. */
 export type CountAllItemsFnReturn = number;
 /** The `hierarchyScan` method resolves to a page of hierarchy scan results. */
 export type HierarchyScanFnReturn = Promise<HierarchyScanPageResult>;
 /** The `saveTreeToFileBytes` method resolves to a Uint8Array containing the tree's data. */
 export type ExportTreeToFileFnReturn = Promise<Uint8Array>;
-/** The `loadTreeFromFileBytes` method resolves to a WasmProllyTree instance. */
-export type LoadTreeFromFileBytesFnReturn = Promise<WasmProllyTree>;
+/** The `loadTreeFromFileBytes` method resolves to a PTree instance. */
+export type LoadTreeFromFileBytesFnReturn = Promise<PTree>;
 
 /**
- * The resolved value of the `WasmProllyTreeCursor.next()` method.
+ * The resolved value of the `PTreeCursor.next()` method.
  * It's an object indicating if the cursor is done, and if not, the current [key, value] pair.
  */
 export type CursorNextReturn =
@@ -116,12 +116,12 @@ export interface HierarchyScanOptions {
  */
 
 export interface HierarchyScanPageResult {
-  items: WasmHierarchyItem[];
+  items: HierarchyItem[];
   hasNextPage: boolean;
   nextPageCursorToken?: string;
 }
 
-export type WasmHierarchyItem =
+export type HierarchyItem =
   | {
       type: "Node";
       hash: Uint8Array;
@@ -156,7 +156,7 @@ export interface HierarchyScanOptions {
 }
 
 export interface HierarchyScanPageResult {
-  items: WasmHierarchyItem[]; // WasmHierarchyItem is defined by the custom section in wasm_bridge.rs
+  items: HierarchyItem[];
   hasNextPage: boolean;
   nextPageCursorToken?: string;
 }

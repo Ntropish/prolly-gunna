@@ -1,6 +1,6 @@
 // packages/prolly-test/src/prolly.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
-import init, { WasmProllyTree } from "../dist/prolly_rust.js";
+import { PTree } from "../dist/prolly_rust.js";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();
@@ -36,22 +36,22 @@ function createLargeTestData(size: number, seed: number = 42): Uint8Array {
 }
 
 // Helper to get the root hash (assuming getRootHash returns Promise<Uint8Array | null>)
-async function getRootHash(tree: WasmProllyTree): Promise<Uint8Array | null> {
+async function getRootHash(tree: PTree): Promise<Uint8Array | null> {
   return (await tree.getRootHash()) as Uint8Array | null;
 }
 
 // Helper to count chunks
-async function countChunks(tree: WasmProllyTree): Promise<number> {
+async function countChunks(tree: PTree): Promise<number> {
   const chunks = (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>;
   return chunks.size;
 }
 
-describe("WasmProllyTree Garbage Collection (GC)", () => {
+describe("PTree Garbage Collection (GC)", () => {
   beforeAll(async () => {
     // await init();
   });
   it("GC: should do nothing on an empty store", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const liveRoots: Uint8Array[] = [];
 
     const initialChunks = await countChunks(tree);
@@ -65,7 +65,7 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
   });
 
   it("GC: should collect all chunks if tree becomes empty and no external live roots are specified", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const key1 = toU8("key1");
     const val1 = toU8("value1");
     const key2 = toU8("key2");
@@ -104,7 +104,7 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
   });
 
   it("GC: should preserve live tree and collect orphaned tree", async () => {
-    const tree = new WasmProllyTree(); // This tree instance will manage the shared store
+    const tree = new PTree(); // This tree instance will manage the shared store
 
     // Create Tree A (will be orphaned)
     await tree.insert(toU8("a_key1"), toU8("a_value1"));
@@ -148,15 +148,15 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
     expectU8Eq(await tree.get(toU8("a_key2")), createLargeTestData(2100, 1));
 
     // Attempt to load Tree A using its root hash from the *current store state*
-    // This requires `WasmProllyTree.load` to use the store of an existing instance
+    // This requires `PTree.load` to use the store of an existing instance
     // or for us to export chunks and re-import. For simplicity, we assume
-    // `WasmProllyTree.load` can be made to use the GC'd store if we provide the current chunk map.
+    // `PTree.load` can be made to use the GC'd store if we provide the current chunk map.
     const currentChunksMap = (await tree.exportChunks()) as Map<
       Uint8Array,
       Uint8Array
     >;
     try {
-      const loadedTreeA = await WasmProllyTree.load(rootA!, currentChunksMap);
+      const loadedTreeA = await PTree.load(rootA!, currentChunksMap);
       // If rootA's unique chunks were collected, operations on loadedTreeA should fail.
       // This is a strong test: can we still get data specific to rootA?
       const val = await loadedTreeA.get(toU8("a_key1")); // Or a key unique to A if designed so
@@ -164,7 +164,7 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
       // If a_key1's node was unique to rootA and not part of rootB's history, this should be null.
       // Given the way we built it, it's likely still there if rootB is just additions.
       // A better test would be to create two *completely separate* trees in the same store
-      // if the API supported that (e.g. tree = new WasmProllyTree(storeInstance)).
+      // if the API supported that (e.g. tree = new PTree(storeInstance)).
       // For now, we'll assume this test is about versions.
       // If a_key1 was part of a chunk only reachable from rootA and not rootB,
       // and that chunk was GC'd, then this get would fail.
@@ -174,14 +174,14 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
         "GC Test: Verification of loading orphaned rootA is complex with current shared-instance setup."
       );
     } catch (e) {
-      // This is more likely if WasmProllyTree.load or subsequent .get fails due to missing chunks.
+      // This is more likely if PTree.load or subsequent .get fails due to missing chunks.
       const errString = e instanceof Error ? e.message : String(e);
       expect(errString).toContain("Chunk not found");
     }
   });
 
   it("GC: should handle shared chunks correctly (preserve if one live root)", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
     const sharedValue = createLargeTestData(3000, 10); // Large, likely chunked
 
     // Tree X: keyX -> sharedValue
@@ -227,12 +227,12 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
     expectU8Eq(await tree.get(toU8("keyZ")), toU8("differentValue")); // Also still there
 
     // This test primarily shows that if we keep rootY, the sharedValue chunks persist.
-    // A stronger test of sharing would involve multiple WasmProllyTree instances sharing one ChunkStore,
+    // A stronger test of sharing would involve multiple PTree instances sharing one ChunkStore,
     // and then making one instance's root "dead".
   });
 
   it("GC: should preserve all chunks of the specified live root, and collect prior orphaned versions", async () => {
-    const tree = new WasmProllyTree();
+    const tree = new PTree();
 
     // Step 1: Create an initial state (Root R1, Node N1)
     await tree.insert(toU8("live1"), toU8("val1"));
@@ -265,7 +265,7 @@ describe("WasmProllyTree Garbage Collection (GC)", () => {
     expect(chunksAfterGc).toBe(2); // More direct assertion
 
     // Verify data of the live tree (R2) is still accessible
-    const currentTreeState = await WasmProllyTree.load(
+    const currentTreeState = await PTree.load(
       rootR2!,
       (await tree.exportChunks()) as Map<Uint8Array, Uint8Array>
     );
