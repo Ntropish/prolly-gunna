@@ -1,6 +1,6 @@
 {
   "name": "prolly-gunna",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "",
   "main": "dist/web/prolly_rust.js",
   "types": "dist/web/prolly_rust.d.ts",
