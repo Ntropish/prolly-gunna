@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-import init, { WasmProllyTree, WasmProllyTreeCursor } from "prolly-wasm";
+import init, {
+  WasmProllyTree,
+  WasmProllyTreeCursor,
+} from "../dist/prolly_rust.js";
 import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
 
 beforeAll(async () => {

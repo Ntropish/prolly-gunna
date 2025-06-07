@@ -5,7 +5,7 @@ import {
   WasmProllyTree,
   HierarchyScanOptions,
   WasmHierarchyItem,
-} from "prolly-wasm"; // Removed initSync, assuming global or other setup
+} from "../dist/prolly_rust.js"; // Removed initSync, assuming global or other setup
 // Updated import to use functions from the provided utils.ts
 import { toU8, u8ToString, formatU8Array, expectU8Eq } from "./lib/utils";
 

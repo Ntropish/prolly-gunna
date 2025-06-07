@@ -2,12 +2,17 @@
   "name": "prolly-gunna",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "workspaces": [
-    "packages/*"
-  ],
+  "main": "dist/prolly_rust.js",
+  "types": "dist/prolly_rust.d.ts",
   "scripts": {
-    "deploy-web": "pnpm --filter edge-detect-web run build && pnpm --filter edge-detect-web run deploy"
+    "build": "wasm-pack build --target web --out-dir ./dist --release",
+    "build:node": "wasm-pack build --target nodejs --out-dir ./dist",
+    "test": "vitest run",
+    "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.16",
+    "vitest": "^3.1.3"
   },
   "keywords": [],
   "author": "",

@@ -1,6 +1,6 @@
 // packages/prolly-test/src/prolly.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
-import init, { WasmProllyTree } from "prolly-wasm";
+import init, { WasmProllyTree } from "../dist/prolly_rust.js";
 
 // Helper to convert strings to Uint8Array for keys/values
 const encoder = new TextEncoder();

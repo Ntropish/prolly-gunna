@@ -3,7 +3,7 @@ import {
   WasmProllyTree,
   type ScanOptions,
   type WasmScanPage,
-} from "prolly-wasm";
+} from "../dist/prolly_rust.js";
 
 // Assuming you have these helpers, or define them here/import them
 // from a shared test utility file.

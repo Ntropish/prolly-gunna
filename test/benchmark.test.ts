@@ -1,5 +1,5 @@
 import { describe, it, beforeAll } from "vitest";
-import init, { WasmProllyTree } from "prolly-wasm";
+import { WasmProllyTree } from "../dist/prolly_rust.js";
 import { toU8 } from "./lib/utils";
 
 // Helper to generate deterministic key-value pairs
