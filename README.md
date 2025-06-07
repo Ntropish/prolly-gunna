@@ -1,4 +1,4 @@
-# Prolly Gunna: A High-Performance Prolly Tree
+# Prolly Gunna: A High-Performance Prolly Tree Library
 
 Prolly Gunna is a high-performance, in-memory implementation of a Prolly Tree (Probabilistic B-Tree), written in Rust and compiled to WebAssembly for use in both Node.js and browser environments.
 
@@ -71,7 +71,7 @@ await tree.insertBatch(batch);
 
 ### Versioning and Diffing
 
-Use getRootHash() to capture immutable snapshots of the tree between mutations.
+Use getRootHash() to capture immutable snapshots of the tree between changes.
 
 ```TypeScript
 const tree = new PTree();
