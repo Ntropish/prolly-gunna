@@ -72,8 +72,6 @@ export type InsertFnReturn = void;
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
-/** The `commit` method resolves to the new root hash (Uint8Array) or null if no changes. */
-export type CommitFnReturn = Uint8Array | null;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */

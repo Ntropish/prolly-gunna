@@ -28,9 +28,9 @@ describe("ProllyTree Hierarchy Scan", () => {
 
   it("should scan a single leaf node tree correctly", async () => {
     await tree.insert(toU8("key1"), toU8("value1"));
-    const rootHash = await tree.commit();
+    const rootHash = await tree.getRootHash();
     expect(rootHash).toBeDefined();
-    if (!rootHash) throw new Error("Root hash is null after commit");
+    if (!rootHash) throw new Error("Root hash is undefined");
 
     const options: HierarchyScanOptions = {};
     const result = await tree.hierarchyScan(options);
@@ -77,21 +77,11 @@ describe("ProllyTree Hierarchy Scan", () => {
     await treeWithSmallFanout.insert(toU8("key01"), toU8("val01"));
     await treeWithSmallFanout.insert(toU8("key02"), toU8("val02"));
 
-    const rootHash = await treeWithSmallFanout.commit();
+    const rootHash = await treeWithSmallFanout.getRootHash();
     expect(rootHash).toBeDefined();
-    if (!rootHash) throw new Error("Root hash is null after commit");
+    if (!rootHash) throw new Error("Root hash is undefined");
 
     const result = await treeWithSmallFanout.hierarchyScan({});
-
-    // Optional debug logging:
-    // console.log(JSON.stringify(result.items.map(item => ({
-    //   ...item,
-    //   hash: item.hash ? formatU8Array(item.hash) : undefined,
-    //   parentHash: item.parentHash ? formatU8Array(item.parentHash) : undefined,
-    //   childHash: item.childHash ? formatU8Array(item.childHash) : undefined,
-    //   key: 'key' in item && item.key ? u8ToString(item.key) : undefined,
-    //   boundaryKey: 'boundaryKey' in item && item.boundaryKey ? u8ToString(item.boundaryKey) : undefined
-    // })), null, 2));
 
     const rootNodeItem = result.items.find(
       (item) => item.type === "Node" && item.level === 1

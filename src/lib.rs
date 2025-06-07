@@ -70,8 +70,6 @@ extern "C" {
     pub type PromiseInsertBatchFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<DeleteFnReturn>")]
     pub type PromiseDeleteFnReturn;
-    #[wasm_bindgen(typescript_type = "Promise<CommitFnReturn>")]
-    pub type PromiseCommitFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<GetRootHashFnReturn>")]
     pub type PromiseGetRootHashFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<ExportChunksFnReturn>")]
@@ -305,17 +303,6 @@ impl PTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
-    #[wasm_bindgen]
-    pub fn commit(&self) -> PromiseCommitFnReturn {
-        let tree_clone = Arc::clone(&self.inner);
-        let future = async move {
-            tree_clone.lock().await.commit().await
-                .map(|opt_hash| opt_hash.map_or(JsValue::NULL, |h| JsValue::from(JsUint8Array::from(&h[..]))))
-                .map_err(prolly_error_to_jsvalue)
-        };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
-    }
-    
     #[wasm_bindgen(js_name = "getRootHash")]
     pub fn get_root_hash(&self) -> PromiseGetRootHashFnReturn {
         let tree_clone = Arc::clone(&self.inner);

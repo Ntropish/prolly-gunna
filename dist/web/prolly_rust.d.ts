@@ -74,8 +74,6 @@ export type InsertFnReturn = void;
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
-/** The `commit` method resolves to the new root hash (Uint8Array) or null if no changes. */
-export type CommitFnReturn = Uint8Array | null;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */
@@ -182,7 +180,6 @@ export class PTree {
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
-  commit(): Promise<CommitFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
   static newWithConfig(target_fanout: number, min_fanout: number): PTree;
@@ -235,7 +232,6 @@ export interface InitOutput {
   readonly ptree_insert: (a: number, b: any, c: any) => any;
   readonly ptree_insertBatch: (a: number, b: any) => any;
   readonly ptree_delete: (a: number, b: any) => any;
-  readonly ptree_commit: (a: number) => any;
   readonly ptree_getRootHash: (a: number) => any;
   readonly ptree_exportChunks: (a: number) => any;
   readonly ptree_newWithConfig: (a: number, b: number) => [number, number, number];
@@ -258,8 +254,8 @@ export interface InitOutput {
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export_7: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
-  readonly closure149_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure194_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure145_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure190_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

@@ -217,9 +217,6 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
     }
     
-    pub async fn commit(&mut self) -> Result<Option<Hash>> {
-        Ok(self.root_hash)
-    }
 
     pub async fn cursor_start(&self) -> Result<Cursor<S>> {
         Cursor::new_at_start(self).await

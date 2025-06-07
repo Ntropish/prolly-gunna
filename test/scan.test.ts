@@ -208,7 +208,6 @@ describe("PTree Scanning (scanItems)", () => {
     for (const item of testDataAll) {
       await tree.insert(item.key, item.value);
     }
-    // await tree.commit();
   });
 
   it("should retrieve all items with no options (full scan, implies large limit)", async () => {
@@ -481,7 +480,6 @@ describe("PTree Scanning (scanItems)", () => {
 
   it("should return empty page for scan on empty tree", async () => {
     const emptyTree = new PTree();
-    await emptyTree.commit();
     const page = await jsPromiseToScanPageProcessed(emptyTree.scanItems({}));
     expect(page.items.length).toBe(0);
     expect(page.hasNextPage).toBe(false);
@@ -513,7 +511,6 @@ describe("PTree Scanning (scanItems)", () => {
     for (const item of allData) {
       await prefixTree.insert(item.key, item.value);
     }
-    await prefixTree.commit();
 
     const prefix = "apple_";
     const startBound = toU8(prefix);
