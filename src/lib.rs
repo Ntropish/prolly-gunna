@@ -153,13 +153,27 @@ impl PTreeCursor {
 #[wasm_bindgen]
 impl PTree {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        let config = TreeConfig::default();
+    pub fn new(options: Option<TreeConfigOptions>) -> Result<PTree, JsValue> {
+        let config: TreeConfig = if let Some(options_js) = options {
+            if options_js.is_undefined() || options_js.is_null() {
+                TreeConfig::default()
+            } else {
+                serde_wasm_bindgen::from_value(options_js.into())
+                    .map_err(|e| JsValue::from_str(&format!("Failed to parse TreeConfigOptions: {}", e)))?
+            }
+        } else {
+            TreeConfig::default()
+        };
+
+        if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 {
+            return Err(JsValue::from_str("Invalid fanout configuration. Ensure `minFanout` > 0 and `targetFanout` >= 2 * `minFanout`."));
+        }
+
         let store = Arc::new(InMemoryStore::new());
         let tree = ProllyTree::new(store, config);
-        Self {
+        Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(tree)),
-        }
+        })
     }
 
     #[wasm_bindgen(js_name = "load")]
@@ -326,15 +340,6 @@ impl PTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
-    #[wasm_bindgen(js_name = newWithConfig)]
-    pub fn new_with_config(target_fanout: usize, min_fanout: usize) -> Result<PTree, JsValue> {
-        let df = TreeConfig::default(); 
-        let cfg = TreeConfig { target_fanout, min_fanout, cdc_min_size: df.cdc_min_size, cdc_avg_size: df.cdc_avg_size, cdc_max_size: df.cdc_max_size, max_inline_value_size: df.max_inline_value_size };
-        if cfg.min_fanout==0||cfg.target_fanout<cfg.min_fanout*2||cfg.target_fanout==0 {
-             return Err(JsValue::from_str("Invalid fanout."));
-        }
-        Ok(Self { inner: Arc::new(tokio::sync::Mutex::new(ProllyTree::new(Arc::new(InMemoryStore::new()), cfg))) })
-    }
 
     #[wasm_bindgen(js_name = cursorStart)]
     pub fn cursor_start(&self) -> Promise {

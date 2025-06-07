@@ -218,7 +218,7 @@ function __wbg_adapter_50(arg0, arg1, arg2) {
     wasm.closure145_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_147(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_146(arg0, arg1, arg2, arg3) {
     wasm.closure190_externref_shim(arg0, arg1, arg2, arg3);
 }
 
@@ -302,9 +302,15 @@ export class PTree {
         const ptr = this.__destroy_into_raw();
         wasm.__wbg_ptree_free(ptr, 0);
     }
-    constructor() {
-        const ret = wasm.ptree_new();
-        this.__wbg_ptr = ret >>> 0;
+    /**
+     * @param {TreeConfigOptions | null} [options]
+     */
+    constructor(options) {
+        const ret = wasm.ptree_new(isLikeNone(options) ? 0 : addToExternrefTable0(options));
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0] >>> 0;
         PTreeFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
@@ -364,18 +370,6 @@ export class PTree {
     exportChunks() {
         const ret = wasm.ptree_exportChunks(this.__wbg_ptr);
         return ret;
-    }
-    /**
-     * @param {number} target_fanout
-     * @param {number} min_fanout
-     * @returns {PTree}
-     */
-    static newWithConfig(target_fanout, min_fanout) {
-        const ret = wasm.ptree_newWithConfig(target_fanout, min_fanout);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return PTree.__wrap(ret[0]);
     }
     /**
      * @returns {Promise<any>}
@@ -693,7 +687,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_147(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_146(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -845,7 +839,7 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper576 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper569 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 146, __wbg_adapter_50);
         return ret;
     };

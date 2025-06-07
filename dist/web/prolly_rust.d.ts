@@ -174,7 +174,7 @@ export class HierarchyScanPage {
  */
 export class PTree {
   free(): void;
-  constructor();
+  constructor(options?: TreeConfigOptions | null);
   static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
@@ -182,7 +182,6 @@ export class PTree {
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
-  static newWithConfig(target_fanout: number, min_fanout: number): PTree;
   cursorStart(): Promise<any>;
   seek(key_js: Uint8Array): Promise<any>;
   diffRoots(root_h_left_js?: Uint8Array | null, root_h_right_js?: Uint8Array | null): Promise<DiffRootsFnReturn>;
@@ -213,20 +212,10 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly __wbg_scanpage_free: (a: number, b: number) => void;
-  readonly scanpage_items: (a: number) => any;
-  readonly scanpage_has_next_page: (a: number) => number;
-  readonly scanpage_has_previous_page: (a: number) => number;
-  readonly scanpage_next_page_cursor: (a: number) => any;
-  readonly scanpage_previous_page_cursor: (a: number) => any;
-  readonly __wbg_hierarchyscanpage_free: (a: number, b: number) => void;
-  readonly hierarchyscanpage_items: (a: number) => any;
-  readonly hierarchyscanpage_has_next_page: (a: number) => number;
-  readonly hierarchyscanpage_next_page_cursor_token: (a: number) => [number, number];
   readonly __wbg_ptree_free: (a: number, b: number) => void;
   readonly __wbg_ptreecursor_free: (a: number, b: number) => void;
   readonly ptreecursor_next: (a: number) => any;
-  readonly ptree_new: () => number;
+  readonly ptree_new: (a: number) => [number, number, number];
   readonly ptree_load: (a: number, b: any, c: number) => any;
   readonly ptree_get: (a: number, b: any) => any;
   readonly ptree_insert: (a: number, b: any, c: any) => any;
@@ -234,7 +223,6 @@ export interface InitOutput {
   readonly ptree_delete: (a: number, b: any) => any;
   readonly ptree_getRootHash: (a: number) => any;
   readonly ptree_exportChunks: (a: number) => any;
-  readonly ptree_newWithConfig: (a: number, b: number) => [number, number, number];
   readonly ptree_cursorStart: (a: number) => any;
   readonly ptree_seek: (a: number, b: any) => any;
   readonly ptree_diffRoots: (a: number, b: number, c: number) => any;
@@ -245,6 +233,16 @@ export interface InitOutput {
   readonly ptree_hierarchyScan: (a: number, b: number) => any;
   readonly ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;
   readonly ptree_loadTreeFromFileBytes: (a: any) => any;
+  readonly __wbg_scanpage_free: (a: number, b: number) => void;
+  readonly scanpage_items: (a: number) => any;
+  readonly scanpage_has_next_page: (a: number) => number;
+  readonly scanpage_has_previous_page: (a: number) => number;
+  readonly scanpage_next_page_cursor: (a: number) => any;
+  readonly scanpage_previous_page_cursor: (a: number) => any;
+  readonly __wbg_hierarchyscanpage_free: (a: number, b: number) => void;
+  readonly hierarchyscanpage_items: (a: number) => any;
+  readonly hierarchyscanpage_has_next_page: (a: number) => number;
+  readonly hierarchyscanpage_next_page_cursor_token: (a: number) => [number, number];
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;

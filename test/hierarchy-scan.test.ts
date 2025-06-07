@@ -71,7 +71,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should scan a tree with one internal node and two leaf children (small fanout)", async () => {
-    const treeWithSmallFanout = await PTree.newWithConfig(2, 1); // (target, min)
+    const treeWithSmallFanout = new PTree({ targetFanout: 2, minFanout: 1 }); // (target, min)
 
     await treeWithSmallFanout.insert(toU8("key00"), toU8("val00"));
     await treeWithSmallFanout.insert(toU8("key01"), toU8("val01"));
@@ -127,7 +127,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should respect maxDepth option", async () => {
-    const treeWithDepth = await PTree.newWithConfig(2, 1);
+    const treeWithDepth = new PTree({ targetFanout: 2, minFanout: 1 });
     await treeWithDepth.insert(toU8("a"), toU8("1"));
     await treeWithDepth.insert(toU8("b"), toU8("2"));
     await treeWithDepth.insert(toU8("c"), toU8("3"));
@@ -165,7 +165,7 @@ describe("ProllyTree Hierarchy Scan", () => {
   });
 
   it("should respect limit option", async () => {
-    const treeWithLimit = await PTree.newWithConfig(2, 1);
+    const treeWithLimit = new PTree({ targetFanout: 2, minFanout: 1 });
     await treeWithLimit.insert(toU8("k1"), toU8("v1"));
     await treeWithLimit.insert(toU8("k2"), toU8("v2"));
     await treeWithLimit.insert(toU8("k3"), toU8("v3"));

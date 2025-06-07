@@ -574,7 +574,7 @@ describe("PTree", () => {
       // Setup: Need two leaf nodes after a split, each with minimum entries (2), then delete one
       // Target fanout 4, min fanout 2. Split at 5 elements.
       // Insert 5 keys to cause split (left leaf 2, right leaf 3)
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
       const keys = ["k01", "k02", "k03", "k04", "k05"];
       for (const k of keys) {
         await tree.insert(toU8(k), toU8(`v_${k}`));
@@ -616,7 +616,7 @@ describe("PTree", () => {
       // Setup: Left leaf with 1 (underflow), Right leaf with 3 (can lend)
       // Target fanout 4, min fanout 2. Split at 5 elements.
       // Insert k01, k02, k03, k04, k05 -> root -> [leaf(k01, k02), leaf(k03, k04, k05)]
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
       const keys = ["k01", "k02", "k03", "k04", "k05"];
       for (const k of keys) {
         await tree.insert(toU8(k), toU8(`v_${k}`));
@@ -648,7 +648,7 @@ describe("PTree", () => {
     });
 
     it("DELETE: should empty the tree when deleting the last element", async () => {
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
       const key = toU8("last");
       await tree.insert(key, toU8("value"));
 
@@ -662,7 +662,7 @@ describe("PTree", () => {
     });
 
     it("should handle interleaved inserts and deletes", async () => {
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
       const N = 20; // Enough to cause some splits/merges potentially
       const present = new Set<string>();
 
@@ -708,7 +708,7 @@ describe("PTree", () => {
       // Renamed slightly for clarity
       const FANOUT = 4;
       const MIN_FANOUT = 2;
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
 
       // --- Setup ---
       console.log("--- TEST: Setup ---");
@@ -813,7 +813,7 @@ describe("PTree", () => {
     it("DELETE: should correctly handle deleting a boundary key", async () => {
       const FANOUT = 4;
       const MIN_FANOUT = 2;
-      const tree = await PTree.newWithConfig(FANOUT, MIN_FANOUT);
+      const tree = new PTree({ targetFanout: FANOUT, minFanout: MIN_FANOUT });
 
       // Setup: Insert k01, k02, k03, k04, k05
       // State: root -> [L(k01, k02){bd=k02}, R(k03, k04, k05){bd=k05}]
@@ -1128,7 +1128,7 @@ describe("PTreeCursor", () => {
   });
 
   it("should iterate over a multi-level tree (split) in order", async () => {
-    const tree = await PTree.newWithConfig(4, 2); // Use small fanout
+    const tree = new PTree({ targetFanout: 4, minFanout: 2 }); // Use small fanout
     const count = 10;
     const expectedItems: { k: Uint8Array; v: Uint8Array }[] = [];
 

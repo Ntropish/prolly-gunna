@@ -1,8 +1,12 @@
-# Prolly Gunna: A High-Performance Prolly Tree
+# Prolly Gunna: A High-Performance Prolly Tree Library
 
 Prolly Gunna is a high-performance, in-memory implementation of a Prolly Tree (Probabilistic B-Tree), written in Rust and compiled to WebAssembly for use in both Node.js and browser environments.
 
 Prolly Trees are content-addressed, persistent data structures that offer powerful features like efficient diffing, history traversal, and structural sharing. This makes them ideal for applications requiring verifiable data, snapshots, and low-cost forks, such as decentralized databases, version control systems, and collaborative applications.
+
+## 🕹️ Demo
+
+[Try them out with the prolly-man web app](https://ntropish.github.io/prolly-man/)
 
 ## ✨ Features
 
@@ -20,6 +24,27 @@ Prolly Trees are content-addressed, persistent data structures that offer powerf
 
 `npm install prolly-gunna`
 
+## 📊 Performance Highlights
+
+The following benchmarks illustrate the library's key performance characteristics. Latencies are reported per-operation.
+
+- Read & Iteration Performance
+
+  - Small Value get: ~9.5 µs
+  - Large Value get (from chunks): ~21.3 µs
+  - Full Tree Scan (per item): ~2.6 µs
+
+- Write & Delete Performance
+
+  - Small Value insert: ~525 µs
+  - delete: ~0.6 µs
+
+- Advanced Operations
+  - Diff (single change in 5,000 items): ~20 µs
+  - Diff (10% change in 5,000 items): ~1.0 ms
+- Storage Efficiency
+  - Incremental Snapshot Cost: Modifying one item in an 81.80 MB tree required only 17.19 KB of new storage, demonstrating the efficiency of structural sharing.
+
 ## 🚀 Usage Examples
 
 First, import the PTree class:
@@ -35,8 +60,15 @@ const u8ToString = (arr: Uint8Array): string => new TextDecoder().decode(arr);
 ### Basic Operations
 
 ```TypeScript
-// Create a new tree
+// Create a new tree with default settings
 const tree = new PTree();
+
+// Or, create a tree with custom fanout settings
+const customTree = new PTree({
+    targetFanout: 64,
+    minFanout: 32,
+});
+
 
 // Insert key-value pairs, mutating the tree
 await tree.insert(toU8("hello"), toU8("world"));
@@ -67,7 +99,7 @@ await tree.insertBatch(batch);
 
 ### Versioning and Diffing
 
-Use getRootHash() to capture immutable snapshots of the tree between mutations.
+Use getRootHash() to capture immutable snapshots of the tree between changes.
 
 ```TypeScript
 const tree = new PTree();
@@ -196,13 +228,20 @@ console.log(`Garbage collected ${collectedCount} chunks.`);
 
 The main class for interacting with a Prolly Tree.
 
-`new PTree()`
+`new PTree(options?: TreeConfigOptions)`
 
-Creates a new, empty tree with default configuration.
+Creates a new, empty tree. An optional options object can be provided to customize tree parameters.
 
-`static newWithConfig(targetFanout: number, minFanout: number): PTree`
-
-Creates a new, empty tree with a custom fanout configuration to control node size.
+```typescript
+interface TreeConfigOptions {
+  targetFanout?: number;
+  minFanout?: number;
+  cdcMinSize?: number;
+  cdcAvgSize?: number;
+  cdcMaxSize?: number;
+  maxInlineValueSize?: number;
+}
+```
 
 `static load(rootHash: Uint8Array | null, chunks: Map<Uint8Array, Uint8Array>, config?: TreeConfigOptions): Promise<PTree>`
 

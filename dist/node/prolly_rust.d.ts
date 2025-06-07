@@ -174,7 +174,7 @@ export class HierarchyScanPage {
  */
 export class PTree {
   free(): void;
-  constructor();
+  constructor(options?: TreeConfigOptions | null);
   static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
@@ -182,7 +182,6 @@ export class PTree {
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
-  static newWithConfig(target_fanout: number, min_fanout: number): PTree;
   cursorStart(): Promise<any>;
   seek(key_js: Uint8Array): Promise<any>;
   diffRoots(root_h_left_js?: Uint8Array | null, root_h_right_js?: Uint8Array | null): Promise<DiffRootsFnReturn>;

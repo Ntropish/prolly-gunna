@@ -60,8 +60,15 @@ const u8ToString = (arr: Uint8Array): string => new TextDecoder().decode(arr);
 ### Basic Operations
 
 ```TypeScript
-// Create a new tree
+// Create a new tree with default settings
 const tree = new PTree();
+
+// Or, create a tree with custom fanout settings
+const customTree = new PTree({
+    targetFanout: 64,
+    minFanout: 32,
+});
+
 
 // Insert key-value pairs, mutating the tree
 await tree.insert(toU8("hello"), toU8("world"));
@@ -221,13 +228,20 @@ console.log(`Garbage collected ${collectedCount} chunks.`);
 
 The main class for interacting with a Prolly Tree.
 
-`new PTree()`
+`new PTree(options?: TreeConfigOptions)`
 
-Creates a new, empty tree with default configuration.
+Creates a new, empty tree. An optional options object can be provided to customize tree parameters.
 
-`static newWithConfig(targetFanout: number, minFanout: number): PTree`
-
-Creates a new, empty tree with a custom fanout configuration to control node size.
+```typescript
+interface TreeConfigOptions {
+  targetFanout?: number;
+  minFanout?: number;
+  cdcMinSize?: number;
+  cdcAvgSize?: number;
+  cdcMaxSize?: number;
+  maxInlineValueSize?: number;
+}
+```
 
 `static load(rootHash: Uint8Array | null, chunks: Map<Uint8Array, Uint8Array>, config?: TreeConfigOptions): Promise<PTree>`
 
