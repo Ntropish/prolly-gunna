@@ -2,16 +2,17 @@
   "name": "prolly-gunna",
   "version": "2.2.0",
   "description": "",
-  "main": "dist/web/prolly_rust.js",
-  "types": "dist/web/prolly_rust.d.ts",
+  "main": "dist/bundler/prolly_rust.js",
+  "types": "dist/bundler/prolly_rust.d.ts",
   "files": [
     "dist/**/*"
   ],
   "scripts": {
-    "build": "npm run build:web && npm run build:node && npm run postbuild",
+    "build": "npm run build:bundler && npm run build:web && npm run build:node && npm run postbuild",
+    "build:bundler": "wasm-pack build --out-dir ./dist/bundler --release",
     "build:web": "wasm-pack build --target web --out-dir ./dist/web --release",
-    "build:node": "wasm-pack build --target nodejs --out-dir ./dist/node",
-    "postbuild": "rimraf \"dist/node/.gitignore\" && rimraf \"dist/web/.gitignore\"",
+    "build:node": "wasm-pack build --target nodejs --out-dir ./dist/node --release",
+    "postbuild": "rimraf \"dist/node/.gitignore\" && rimraf \"dist/web/.gitignore\" && rimraf \"dist/bundler/.gitignore\"",
     "test": "vitest run",
     "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept",
     "benchmark": "ts-node scripts/benchmark.ts",
