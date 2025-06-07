@@ -4,6 +4,10 @@ Prolly Gunna is a high-performance, in-memory implementation of a Prolly Tree (P
 
 Prolly Trees are content-addressed, persistent data structures that offer powerful features like efficient diffing, history traversal, and structural sharing. This makes them ideal for applications requiring verifiable data, snapshots, and low-cost forks, such as decentralized databases, version control systems, and collaborative applications.
 
+## 🕹️ Demo
+
+[Try them out with the prolly-man web app](https://ntropish.github.io/prolly-man/)
+
 ## ✨ Features
 
 - High-Performance Key-Value Store: Fast in-memory operations for get, insert, delete, and insertBatch.
