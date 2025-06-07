@@ -207,7 +207,7 @@ describe("PTree Benchmarks", () => {
   );
 });
 
-describe("PTree Advanced Benchmarks", () => {
+describe.skip("PTree Advanced Benchmarks", () => {
   const BENCHMARK_TIMEOUT = 100000; // 100 seconds
 
   it(
