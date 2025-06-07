@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept",
     "benchmark": "ts-node scripts/benchmark.ts",
-    "benchmark:save": "ts-node scripts/benchmark-save.ts"
+    "benchmark:save": "ts-node scripts/benchmark-save.ts",
+    "publish:dry-run": "npm pack --dry-run",
+    "publish": "npm publish --access public"
   },
   "devDependencies": {
     "@types/node": "^22.15.16",
