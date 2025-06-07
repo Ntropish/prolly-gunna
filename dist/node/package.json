@@ -1,0 +1,11 @@
+{
+  "name": "prolly-rust",
+  "version": "0.1.0",
+  "files": [
+    "prolly_rust_bg.wasm",
+    "prolly_rust.js",
+    "prolly_rust.d.ts"
+  ],
+  "main": "prolly_rust.js",
+  "types": "prolly_rust.d.ts"
+}

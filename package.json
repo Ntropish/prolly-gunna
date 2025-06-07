@@ -8,9 +8,10 @@
     "dist/**/*"
   ],
   "scripts": {
-    "build": "npm run build:web && npm run build:node",
+    "build": "npm run build:web && npm run build:node && npm run postbuild",
     "build:web": "wasm-pack build --target web --out-dir ./dist/web --release",
     "build:node": "wasm-pack build --target nodejs --out-dir ./dist/node",
+    "postbuild": "rimraf \"dist/node/.gitignore\" && rimraf \"dist/web/.gitignore\"",
     "test": "vitest run",
     "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept",
     "benchmark": "ts-node scripts/benchmark.ts",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@types/node": "^22.15.16",
     "ora": "^8.2.0",
+    "rimraf": "^6.0.1",
     "tinybench": "^4.0.1",
     "ts-node": "^10.9.2",
     "vitest": "^3.1.3"
