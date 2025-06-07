@@ -24,6 +24,27 @@ Prolly Trees are content-addressed, persistent data structures that offer powerf
 
 `npm install prolly-gunna`
 
+## 📊 Performance Highlights
+
+The following benchmarks illustrate the library's key performance characteristics. Latencies are reported per-operation.
+
+- Read & Iteration Performance
+
+  - Small Value get: ~9.5 µs
+  - Large Value get (from chunks): ~21.3 µs
+  - Full Tree Scan (per item): ~2.6 µs
+
+- Write & Delete Performance
+
+  - Small Value insert: ~525 µs
+  - delete: ~0.6 µs
+
+- Advanced Operations
+  - Diff (single change in 5,000 items): ~20 µs
+  - Diff (10% change in 5,000 items): ~1.0 ms
+- Storage Efficiency
+  - Incremental Snapshot Cost: Modifying one item in an 81.80 MB tree required only 17.19 KB of new storage, demonstrating the efficiency of structural sharing.
+
 ## 🚀 Usage Examples
 
 First, import the PTree class:
