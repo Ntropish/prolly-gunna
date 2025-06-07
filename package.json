@@ -8,10 +8,15 @@
     "build": "wasm-pack build --target web --out-dir ./dist --release",
     "build:node": "wasm-pack build --target nodejs --out-dir ./dist",
     "test": "vitest run",
-    "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept"
+    "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept",
+    "benchmark": "ts-node scripts/benchmark.ts",
+    "benchmark:save": "ts-node scripts/benchmark-save.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.16",
+    "ora": "^8.2.0",
+    "tinybench": "^4.0.1",
+    "ts-node": "^10.9.2",
     "vitest": "^3.1.3"
   },
   "keywords": [],

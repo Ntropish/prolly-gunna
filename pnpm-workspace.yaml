@@ -1,4 +1,0 @@
-injectWorkspacePackages: true
-packages:
-  - "web"
-  - "packages/*"
