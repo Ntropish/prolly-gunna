@@ -223,11 +223,11 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 function __wbg_adapter_50(arg0, arg1, arg2) {
-    wasm.closure145_externref_shim(arg0, arg1, arg2);
+    wasm.closure149_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_146(arg0, arg1, arg2, arg3) {
-    wasm.closure190_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_147(arg0, arg1, arg2, arg3) {
+    wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 const HierarchyScanPageFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -363,6 +363,14 @@ export class PTree {
      */
     delete(key_js) {
         const ret = wasm.ptree_delete(this.__wbg_ptr, key_js);
+        return ret;
+    }
+    /**
+     * @param {Uint8Array | null} [hash_js]
+     * @returns {Promise<CheckoutFnReturn>}
+     */
+    checkout(hash_js) {
+        const ret = wasm.ptree_checkout(this.__wbg_ptr, isLikeNone(hash_js) ? 0 : addToExternrefTable0(hash_js));
         return ret;
     }
     /**
@@ -681,7 +689,7 @@ export function __wbg_new_23a2665fac83c611(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wbg_adapter_146(a, state0.b, arg0, arg1);
+                return __wbg_adapter_147(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -868,8 +876,8 @@ export function __wbindgen_cb_drop(arg0) {
     return ret;
 };
 
-export function __wbindgen_closure_wrapper569(arg0, arg1, arg2) {
-    const ret = makeMutClosure(arg0, arg1, 146, __wbg_adapter_50);
+export function __wbindgen_closure_wrapper577(arg0, arg1, arg2) {
+    const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
     return ret;
 };
 

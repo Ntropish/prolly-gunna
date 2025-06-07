@@ -74,6 +74,8 @@ export type InsertFnReturn = void;
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
+/** The `checkout` method resolves to void (or undefined in JS) upon completion. */
+export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */
@@ -180,6 +182,7 @@ export class PTree {
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
+  checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
   cursorStart(): Promise<any>;
@@ -221,6 +224,7 @@ export interface InitOutput {
   readonly ptree_insert: (a: number, b: any, c: any) => any;
   readonly ptree_insertBatch: (a: number, b: any) => any;
   readonly ptree_delete: (a: number, b: any) => any;
+  readonly ptree_checkout: (a: number, b: number) => any;
   readonly ptree_getRootHash: (a: number) => any;
   readonly ptree_exportChunks: (a: number) => any;
   readonly ptree_cursorStart: (a: number) => any;
@@ -252,8 +256,8 @@ export interface InitOutput {
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export_7: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
-  readonly closure145_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure190_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure149_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure194_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

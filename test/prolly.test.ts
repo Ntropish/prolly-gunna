@@ -49,6 +49,52 @@ describe("PTree", () => {
     expect(Array.from(hash1!)).not.toEqual(Array.from(hash2!));
   });
 
+  describe("checkout", () => {
+    it("should checkout to a previous version", async () => {
+      const tree = new PTree();
+      await tree.insert(toU8("k1"), toU8("v1"));
+      const hash1 = await tree.getRootHash();
+
+      await tree.insert(toU8("k2"), toU8("v2"));
+      const hash2 = await tree.getRootHash();
+
+      // Before checkout, we are at hash2
+      expect(await tree.get(toU8("k2"))).toBeDefined();
+      expectU8Eq(await tree.getRootHash(), hash2);
+
+      // Checkout to the previous state
+      await tree.checkout(hash1);
+
+      // After checkout, we should be at hash1
+      expectU8Eq(await tree.getRootHash(), hash1);
+      expectU8Eq(await tree.get(toU8("k1")), toU8("v1"));
+      expect(await tree.get(toU8("k2"))).toBeNull();
+    });
+
+    it("should checkout to an empty tree", async () => {
+      const tree = new PTree();
+      await tree.insert(toU8("k1"), toU8("v1"));
+      expect(await tree.getRootHash()).not.toBeNull();
+
+      // Checkout to null (empty tree)
+      await tree.checkout(null);
+
+      expect(await tree.getRootHash()).toBeNull();
+      expect(await tree.get(toU8("k1"))).toBeNull();
+    });
+
+    it("should reject checkout to a non-existent hash", async () => {
+      const tree = new PTree();
+      await tree.insert(toU8("k1"), toU8("v1"));
+
+      const invalidHash = new Uint8Array(32).fill(1); // Create a plausible but non-existent hash
+
+      await expect(tree.checkout(invalidHash)).rejects.toThrow(
+        /Chunk not found/
+      );
+    });
+  });
+
   it("should handle many inserts potentially causing splits", async () => {
     const tree = new PTree();
     const count = 100; // Should be enough to trigger splits with default fanout 32
@@ -455,6 +501,8 @@ describe("PTree", () => {
       // Verify a subset of items
       for (let i = 0; i < batchSize; i += 5) {
         const item = itemsToInsert[i];
+        expect(item).not.toBeUndefined();
+        if (!item) continue;
         const retrieved = (await tree.get(toU8(item.k))) as Uint8Array | null;
         expectU8Eq(
           retrieved,
@@ -1160,6 +1208,10 @@ describe("PTreeCursor", () => {
 
     expect(collectedItems.length).toBe(expectedItems.length);
     for (let i = 0; i < expectedItems.length; i++) {
+      expect(collectedItems[i]).not.toBeUndefined();
+      expect(expectedItems[i]).not.toBeUndefined();
+      if (!collectedItems[i] || !expectedItems[i]) continue;
+
       expectU8Eq(
         collectedItems[i].k,
         expectedItems[i].k,

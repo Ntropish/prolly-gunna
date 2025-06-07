@@ -70,6 +70,8 @@ extern "C" {
     pub type PromiseInsertBatchFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<DeleteFnReturn>")]
     pub type PromiseDeleteFnReturn;
+    #[wasm_bindgen(typescript_type = "Promise<CheckoutFnReturn>")]
+    pub type PromiseCheckoutFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<GetRootHashFnReturn>")]
     pub type PromiseGetRootHashFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<ExportChunksFnReturn>")]
@@ -175,6 +177,7 @@ impl PTree {
             inner: Arc::new(tokio::sync::Mutex::new(tree)),
         })
     }
+
 
     #[wasm_bindgen(js_name = "load")]
     pub fn load(
@@ -317,6 +320,29 @@ impl PTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
+    #[wasm_bindgen]
+    pub fn checkout(&self, hash_js: Option<JsUint8Array>) -> PromiseCheckoutFnReturn {
+        let hash_opt: Option<Hash> = match hash_js {
+            Some(h_js) => {
+                if h_js.length() != 32 {
+                    return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str("Invalid hash length. Must be 32 bytes."))).into();
+                }
+                let mut h: Hash = [0; 32];
+                h_js.copy_to(&mut h);
+                Some(h)
+            }
+            None => None,
+        };
+
+        let tree_clone = Arc::clone(&self.inner);
+        let future = async move {
+            tree_clone.lock().await.checkout(hash_opt).await
+                .map(|_| JsValue::UNDEFINED)
+                .map_err(prolly_error_to_jsvalue)
+        };
+        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
     #[wasm_bindgen(js_name = "getRootHash")]
     pub fn get_root_hash(&self) -> PromiseGetRootHashFnReturn {
         let tree_clone = Arc::clone(&self.inner);
@@ -339,7 +365,6 @@ impl PTree {
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
-
 
     #[wasm_bindgen(js_name = cursorStart)]
     pub fn cursor_start(&self) -> Promise {

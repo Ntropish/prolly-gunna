@@ -202,6 +202,18 @@ impl<S: ChunkStore> ProllyTree<S> {
         Box::pin(core_logic::delete_recursive_impl(self, node_hash, key, level, key_actually_deleted_flag))
     }
 
+    pub async fn checkout(&mut self, hash: Option<Hash>) -> Result<()> {
+        if let Some(h) = hash {
+            // Validate the hash points to a valid node before updating the root
+            self.load_node(&h).await?;
+            self.root_hash = Some(h);
+        } else {
+            // If None is passed, checkout to an empty tree
+            self.root_hash = None;
+        }
+        Ok(())
+    }
+
     pub async fn count_all_items(&self) -> Result<u64> {
         if self.root_hash.is_none() {
             return Ok(0);

@@ -74,6 +74,8 @@ export type InsertFnReturn = void;
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
+/** The `checkout` method resolves to void (or undefined in JS) upon completion. */
+export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */
@@ -180,6 +182,7 @@ export class PTree {
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
+  checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
   cursorStart(): Promise<any>;
