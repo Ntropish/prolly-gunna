@@ -4,6 +4,9 @@
   "description": "",
   "main": "dist/web/prolly_rust.js",
   "types": "dist/web/prolly_rust.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
     "build": "npm run build:web && npm run build:node",
     "build:web": "wasm-pack build --target web --out-dir ./dist/web --release",
