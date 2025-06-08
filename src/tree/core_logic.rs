@@ -1,5 +1,3 @@
-use std::pin::Pin;
-use std::future::Future;
 use log::warn;
 
 use crate::common::{Hash, Key, Value};
@@ -7,17 +5,16 @@ use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
 use crate::store::ChunkStore;
 use crate::error::{Result, ProllyError};
 
+use crate::platform::{PlatformStore, BoxFuture};
+use super::prolly_tree::ProllyTree;
 use super::types::{ProcessedNodeUpdate, DeleteRecursionResult};
-use super::prolly_tree::ProllyTree; // Used for type context and methods like load_node, config
-use super::io;
-use super::modification;
+use super::{io, modification};
 
-
-pub(super) fn get_recursive_impl<'s, S: ChunkStore + 's>(
+pub(super) fn get_recursive_impl<'s, S: PlatformStore + 's>(
     tree: &'s ProllyTree<S>,
     node_hash: Hash,
     key: Key,
-) -> Pin<Box<dyn Future<Output = Result<Option<Value>>> + Send + 's>> {
+) -> BoxFuture<'s, Result<Option<Value>>> {
     Box::pin(async move {
         let node = tree.load_node(&node_hash).await?;
         match node {
@@ -74,7 +71,7 @@ pub(super) fn insert_recursive_impl<'s, S: ChunkStore + 's>(
     key: Key,
     value_repr: ValueRepr, // Changed from `value: Value`
     level: u8,
-) -> Pin<Box<dyn Future<Output = Result<ProcessedNodeUpdate>> + Send + 's>> {
+) -> BoxFuture<'s, Result<ProcessedNodeUpdate>> {
     Box::pin(async move {
         let mut current_node_obj = tree.load_node(&current_node_hash).await?;
 
@@ -181,7 +178,7 @@ pub(super) fn delete_recursive_impl<'s, S: ChunkStore + 's>(
     key: &'s Key,
     level: u8,
     key_actually_deleted_flag: &'s mut bool,
-) -> Pin<Box<dyn Future<Output = Result<DeleteRecursionResult>> + Send + 's>> {
+) -> BoxFuture<'s, Result<DeleteRecursionResult>>  {
     Box::pin(async move {
         let mut current_node_obj = tree.load_node(&node_hash).await?;
 

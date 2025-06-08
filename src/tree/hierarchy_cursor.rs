@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::collections::VecDeque;
 
+use crate::platform::{PlatformStore};
 use crate::common::{Hash, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, ValueRepr};
@@ -23,7 +24,7 @@ pub struct HierarchyCursor<S: ChunkStore> {
     // REMOVED: page_limit and items_yielded_count
 }
 
-impl<S: ChunkStore> HierarchyCursor<S> {
+impl<S: PlatformStore> HierarchyCursor<S>  {
     pub(crate) async fn new_for_hierarchy_scan(
         tree: &ProllyTree<S>,
         args: HierarchyScanArgs,
@@ -53,7 +54,6 @@ impl<S: ChunkStore> HierarchyCursor<S> {
         S: 's, 
     {
         Box::pin(async move {
-            // REMOVED the page_limit and items_yielded_count check from here
 
             if let Some(&mut (ref mut parent_hash_val, ref node_ref, ref mut entry_idx_ref, ref mut _entry_type_ref)) = self.current_node_entries_queue.front_mut() {
                 let current_parent_hash = *parent_hash_val;
