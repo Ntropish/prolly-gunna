@@ -1,5 +1,3 @@
-import { openDb } from './snippets/prolly-rust-adf52c9dffa444c2/src/store/indexed_db_helpers.js';
-
 let wasm;
 export function __wbg_set_wasm(val) {
     wasm = val;
@@ -224,12 +222,12 @@ function takeFromExternrefTable0(idx) {
     wasm.__externref_table_dealloc(idx);
     return value;
 }
-function __wbg_adapter_48(arg0, arg1, arg2) {
-    wasm.closure193_externref_shim(arg0, arg1, arg2);
+function __wbg_adapter_50(arg0, arg1, arg2) {
+    wasm.closure149_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_143(arg0, arg1, arg2, arg3) {
-    wasm.closure215_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_147(arg0, arg1, arg2, arg3) {
+    wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 const HierarchyScanPageFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -285,61 +283,12 @@ export class HierarchyScanPage {
     }
 }
 
-const IndexedDBStoreFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_indexeddbstore_free(ptr >>> 0, 1));
-
-export class IndexedDBStore {
-
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(IndexedDBStore.prototype);
-        obj.__wbg_ptr = ptr;
-        IndexedDBStoreFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        IndexedDBStoreFinalization.unregister(this);
-        return ptr;
-    }
-
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_indexeddbstore_free(ptr, 0);
-    }
-    /**
-     * @param {string} db_name
-     */
-    constructor(db_name) {
-        const ptr0 = passStringToWasm0(db_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.indexeddbstore_new(ptr0, len0);
-        return ret;
-    }
-    /**
-     * @returns {string}
-     */
-    get name() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const ret = wasm.indexeddbstore_name(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-}
-
 const PTreeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_ptree_free(ptr >>> 0, 1));
-
+/**
+ * Public wrapper for ProllyTree exported to JavaScript.
+ */
 export class PTree {
 
     static __wrap(ptr) {
@@ -377,7 +326,7 @@ export class PTree {
      * @param {Uint8Array | null | undefined} root_hash_js
      * @param {Map<any, any>} chunks_js
      * @param {TreeConfigOptions | null} [tree_config_options]
-     * @returns {Promise<LoadTreeFromFileBytesFnReturn>}
+     * @returns {Promise<any>}
      */
     static load(root_hash_js, chunks_js, tree_config_options) {
         const ret = wasm.ptree_load(isLikeNone(root_hash_js) ? 0 : addToExternrefTable0(root_hash_js), chunks_js, isLikeNone(tree_config_options) ? 0 : addToExternrefTable0(tree_config_options));
@@ -639,6 +588,12 @@ export function __wbg_call_7cccdd69e0791ae2() { return handleError(function (arg
     return ret;
 }, arguments) };
 
+export function __wbg_debug_07010e9cfe65fce9(arg0, arg1) {
+    var v0 = getArrayJsValueFromWasm0(arg0, arg1).slice();
+    wasm.__wbindgen_free(arg0, arg1 * 4, 4);
+    console.debug(...v0);
+};
+
 export function __wbg_done_769e5ede4b31c67b(arg0) {
     const ret = arg0.done;
     return ret;
@@ -672,11 +627,6 @@ export function __wbg_getwithrefkey_1dc361bd10053bfe(arg0, arg1) {
 
 export function __wbg_hierarchyscanpage_new(arg0) {
     const ret = HierarchyScanPage.__wrap(arg0);
-    return ret;
-};
-
-export function __wbg_indexeddbstore_new(arg0) {
-    const ret = IndexedDBStore.__wrap(arg0);
     return ret;
 };
 
@@ -739,7 +689,7 @@ export function __wbg_new_23a2665fac83c611(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wbg_adapter_143(a, state0.b, arg0, arg1);
+                return __wbg_adapter_147(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -758,6 +708,11 @@ export function __wbg_new_405e22f390576ce2() {
 
 export function __wbg_new_5e0be73521bc8c17() {
     const ret = new Map();
+    return ret;
+};
+
+export function __wbg_new_78feb108b6472713() {
+    const ret = new Array();
     return ret;
 };
 
@@ -791,11 +746,6 @@ export function __wbg_next_6574e1a8a62d1055() { return handleError(function (arg
     return ret;
 }, arguments) };
 
-export function __wbg_openDb_41807941c96053ba() { return handleError(function (arg0, arg1) {
-    const ret = openDb(getStringFromWasm0(arg0, arg1));
-    return ret;
-}, arguments) };
-
 export function __wbg_ptree_new(arg0) {
     const ret = PTree.__wrap(arg0);
     return ret;
@@ -803,6 +753,11 @@ export function __wbg_ptree_new(arg0) {
 
 export function __wbg_ptreecursor_new(arg0) {
     const ret = PTreeCursor.__wrap(arg0);
+    return ret;
+};
+
+export function __wbg_push_737cfc8c1432c2c6(arg0, arg1) {
+    const ret = arg0.push(arg1);
     return ret;
 };
 
@@ -877,14 +832,15 @@ export function __wbg_then_44b73946d2fb3e7d(arg0, arg1) {
     return ret;
 };
 
-export function __wbg_then_48b406749878a531(arg0, arg1, arg2) {
-    const ret = arg0.then(arg1, arg2);
-    return ret;
-};
-
 export function __wbg_value_cd1ffa7b1ab794f1(arg0) {
     const ret = arg0.value;
     return ret;
+};
+
+export function __wbg_warn_1529a2c662795cd8(arg0, arg1) {
+    var v0 = getArrayJsValueFromWasm0(arg0, arg1).slice();
+    wasm.__wbindgen_free(arg0, arg1 * 4, 4);
+    console.warn(...v0);
 };
 
 export function __wbindgen_as_number(arg0) {
@@ -920,8 +876,8 @@ export function __wbindgen_cb_drop(arg0) {
     return ret;
 };
 
-export function __wbindgen_closure_wrapper751(arg0, arg1, arg2) {
-    const ret = makeMutClosure(arg0, arg1, 194, __wbg_adapter_48);
+export function __wbindgen_closure_wrapper577(arg0, arg1, arg2) {
+    const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
     return ret;
 };
 
@@ -961,6 +917,11 @@ export function __wbindgen_is_bigint(arg0) {
 
 export function __wbindgen_is_function(arg0) {
     const ret = typeof(arg0) === 'function';
+    return ret;
+};
+
+export function __wbindgen_is_null(arg0) {
+    const ret = arg0 === null;
     return ret;
 };
 

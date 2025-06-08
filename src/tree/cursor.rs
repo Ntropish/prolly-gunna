@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::cmp::Ordering;
 use log::warn; 
 
-use crate::platform::PlatformStore;
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, ValueRepr, LeafEntry};
@@ -32,7 +31,7 @@ pub struct Cursor<S: ChunkStore> {
     current_leaf_entry_idx: usize,
 }
 
-impl<S: PlatformStore> Cursor<S> {
+impl<S: ChunkStore> Cursor<S> {
     /// Creates a new cursor, positioned before the first element.
     /// Requires navigating down the leftmost path to the first leaf.
     pub(crate) async fn new_at_start(tree: &ProllyTree<S>) -> Result<Self> {

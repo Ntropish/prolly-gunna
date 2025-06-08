@@ -47,9 +47,8 @@ pub async fn diff_trees<S: ChunkStore>(
     recursive_diff(left_root_hash, right_root_hash, store, config).await
 }
 
-use crate::platform::PlatformStore;
-#[async_recursion(?Send)] // Use ?Send to support wasm
-async fn recursive_diff<S: PlatformStore>(
+#[async_recursion] // Use macro to handle async recursion boxing
+async fn recursive_diff<S: ChunkStore>(
     left_hash: Option<Hash>,
     right_hash: Option<Hash>,
     store: Arc<S>,

@@ -2,7 +2,7 @@
 
 import { Bench, Task } from "tinybench"; // Import Task for correct typing
 import ora from "ora";
-import { PTree } from "../dist/node/prolly_rust.js";
+import { PTree } from "../dist/prolly_rust.js";
 
 const toU8 = (s: string) => new TextEncoder().encode(s);
 

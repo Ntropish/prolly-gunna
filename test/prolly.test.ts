@@ -574,13 +574,14 @@ describe("PTree", () => {
 
       try {
         await tree.insertBatch(malformedItems as any);
+        // If it reaches here, the promise didn't reject, which is a failure for this test.
         expect.fail(
           "insertBatch promise should have been rejected for malformed input."
         );
       } catch (error: any) {
-        // FIX: Check the stringified error, which will include the "ProllyError:" prefix
-        expect(error.toString()).toContain(
-          "ProllyError: JavaScript binding error: Item at index 1 is not an array"
+        // Check if the error message is what we expect from Rust's error handling in lib.rs
+        expect(error.message || error.toString()).toContain(
+          "Item at index 1 in batch is not an array."
         );
       }
 
@@ -594,9 +595,8 @@ describe("PTree", () => {
           "insertBatch promise should have been rejected for malformed pair."
         );
       } catch (error: any) {
-        // FIX: Check the stringified error
-        expect(error.toString()).toContain(
-          "ProllyError: JavaScript binding error: Item at index 1 is not a pair"
+        expect(error.message || error.toString()).toContain(
+          "Item at index 1 in batch is not a [key, value] pair."
         );
       }
 
@@ -607,9 +607,8 @@ describe("PTree", () => {
           "insertBatch promise should have been rejected for non-Uint8Array value."
         );
       } catch (error: any) {
-        // FIX: Check the stringified error
-        expect(error.toString()).toContain(
-          "ProllyError: JavaScript binding error: Value at index 0 is not a Uint8Array"
+        expect(error.message || error.toString()).toContain(
+          "Item at index 0 in batch has non-Uint8Array key or value."
         );
       }
     });
