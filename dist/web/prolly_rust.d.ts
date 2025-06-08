@@ -189,7 +189,7 @@ export class PTree {
   exportChunks(): Promise<ExportChunksFnReturn>;
   cursorStart(): Promise<any>;
   seek(key_js: Uint8Array): Promise<any>;
-  diffRoots(_root_h_left_js?: Uint8Array | null, root_h_right_js?: Uint8Array | null): Promise<DiffRootsFnReturn>;
+  diffRoots(root_h_left_js?: Uint8Array | null, root_h_right_js?: Uint8Array | null): Promise<DiffRootsFnReturn>;
   triggerGc(live_hashes_js_val: any): Promise<TriggerGcFnReturn>;
   getTreeConfig(): Promise<GetTreeConfigFnReturn>;
   scanItems(options: ScanOptions): Promise<ScanItemsFnReturn>;

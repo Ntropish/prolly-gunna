@@ -296,13 +296,16 @@ impl PTree {
     }
 
     #[wasm_bindgen(js_name = diffRoots)]
-    pub fn diff_roots(&self, _root_h_left_js: Option<JsUint8Array>, root_h_right_js: Option<JsUint8Array>) -> PromiseDiffRootsFnReturn {
+    pub fn diff_roots( &self, root_h_left_js: Option<JsUint8Array>, root_h_right_js: Option<JsUint8Array>) -> PromiseDiffRootsFnReturn {
+        let h_left = root_h_left_js.map(|arr| { let mut h = [0;32]; arr.copy_to(&mut h); h });
         let h_right = root_h_right_js.map(|arr| { let mut h = [0;32]; arr.copy_to(&mut h); h });
-        
+
         let future = async_to_promise!(self, |tree| {
             // FIX: Add `.map_err(prolly_error_to_jsvalue)` before the `?`
-            let diffs = tree.diff(h_right).await.map_err(prolly_error_to_jsvalue)?;
-            
+            let diffs = crate::diff::diff_trees(h_left, h_right, Arc::clone(&tree.store), tree.config.clone())
+                .await
+                .map_err(prolly_error_to_jsvalue)?;
+
             let res_array = JsArray::new_with_length(diffs.len() as u32);
             for (i, entry) in diffs.iter().enumerate() {
                 let obj = Object::new();

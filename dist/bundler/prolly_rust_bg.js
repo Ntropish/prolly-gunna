@@ -454,12 +454,12 @@ export class PTree {
         return ret;
     }
     /**
-     * @param {Uint8Array | null} [_root_h_left_js]
+     * @param {Uint8Array | null} [root_h_left_js]
      * @param {Uint8Array | null} [root_h_right_js]
      * @returns {Promise<DiffRootsFnReturn>}
      */
-    diffRoots(_root_h_left_js, root_h_right_js) {
-        const ret = wasm.ptree_diffRoots(this.__wbg_ptr, isLikeNone(_root_h_left_js) ? 0 : addToExternrefTable0(_root_h_left_js), isLikeNone(root_h_right_js) ? 0 : addToExternrefTable0(root_h_right_js));
+    diffRoots(root_h_left_js, root_h_right_js) {
+        const ret = wasm.ptree_diffRoots(this.__wbg_ptr, isLikeNone(root_h_left_js) ? 0 : addToExternrefTable0(root_h_left_js), isLikeNone(root_h_right_js) ? 0 : addToExternrefTable0(root_h_right_js));
         return ret;
     }
     /**
