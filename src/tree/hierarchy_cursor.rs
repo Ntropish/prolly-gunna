@@ -1,59 +1,47 @@
 // In packages/prolly-rust/src/tree/hierarchy_cursor.rs
 
-use std::pin::Pin;
-use std::future::Future;
 use std::sync::Arc;
 use std::collections::VecDeque;
 
+use crate::platform::{PlatformStore, BoxFuture};
 use crate::common::{Hash, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, ValueRepr};
-use crate::store::ChunkStore;
 use crate::tree::{ProllyTree, types::{HierarchyScanArgs, HierarchyItem}};
 
 #[derive(Debug)]
-pub struct HierarchyCursor<S: ChunkStore> {
+pub struct HierarchyCursor<S: PlatformStore> {
     store: Arc<S>,
     #[allow(dead_code)]
     config: TreeConfig,
-    args: HierarchyScanArgs, // For max_depth, start_key etc.
-
+    args: HierarchyScanArgs,
     traversal_queue: VecDeque<(Hash, usize, Vec<usize>)>,
     current_node_entries_queue: VecDeque<(Hash, Node, usize, usize)>,
-    // REMOVED: page_limit and items_yielded_count
 }
 
-impl<S: ChunkStore> HierarchyCursor<S> {
-    pub(crate) async fn new_for_hierarchy_scan(
-        tree: &ProllyTree<S>,
-        args: HierarchyScanArgs,
-    ) -> Result<Self> {
+impl<S: PlatformStore> HierarchyCursor<S> {
+    pub(crate) async fn new_for_hierarchy_scan(tree: &ProllyTree<S>, args: HierarchyScanArgs) -> Result<Self> {
         let mut traversal_queue = VecDeque::new();
         if let Some(root_hash) = tree.root_hash {
             traversal_queue.push_back((root_hash, 0, vec![]));
         }
-
         Ok(Self {
             store: Arc::clone(&tree.store),
             config: tree.config.clone(),
-            args: args.clone(), // args now primarily for max_depth, start_key
+            args,
             traversal_queue,
             current_node_entries_queue: VecDeque::new(),
         })
     }
 
     async fn load_node(&self, hash: &Hash) -> Result<Node> {
-        let bytes = self.store.get(hash).await?
-            .ok_or_else(|| ProllyError::ChunkNotFound(*hash))?;
+        let bytes = self.store.get(hash).await?.ok_or_else(|| ProllyError::ChunkNotFound(*hash))?;
         Node::decode(&bytes)
     }
 
-    pub fn next_item<'s>(&'s mut self) -> Pin<Box<dyn Future<Output = Result<Option<HierarchyItem>>> + Send + 's>>
-    where
-        S: 's, 
-    {
+    // FIX: Apply the BoxFuture alias to the return type
+    pub fn next_item<'s>(&'s mut self) -> BoxFuture<'s, Result<Option<HierarchyItem>>> {
         Box::pin(async move {
-            // REMOVED the page_limit and items_yielded_count check from here
 
             if let Some(&mut (ref mut parent_hash_val, ref node_ref, ref mut entry_idx_ref, ref mut _entry_type_ref)) = self.current_node_entries_queue.front_mut() {
                 let current_parent_hash = *parent_hash_val;

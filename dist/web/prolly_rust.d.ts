@@ -171,13 +171,15 @@ export class HierarchyScanPage {
   readonly hasNextPage: boolean;
   readonly nextPageCursorToken: string | undefined;
 }
-/**
- * Public wrapper for ProllyTree exported to JavaScript.
- */
+export class IndexedDBStore {
+  free(): void;
+  constructor(db_name: string);
+  readonly name: string;
+}
 export class PTree {
   free(): void;
   constructor(options?: TreeConfigOptions | null);
-  static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
+  static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<LoadTreeFromFileBytesFnReturn>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
@@ -237,6 +239,9 @@ export interface InitOutput {
   readonly ptree_hierarchyScan: (a: number, b: number) => any;
   readonly ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;
   readonly ptree_loadTreeFromFileBytes: (a: any) => any;
+  readonly __wbg_indexeddbstore_free: (a: number, b: number) => void;
+  readonly indexeddbstore_new: (a: number, b: number) => any;
+  readonly indexeddbstore_name: (a: number) => [number, number];
   readonly __wbg_scanpage_free: (a: number, b: number) => void;
   readonly scanpage_items: (a: number) => any;
   readonly scanpage_has_next_page: (a: number) => number;
@@ -256,8 +261,8 @@ export interface InitOutput {
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export_7: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
-  readonly closure149_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure194_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure193_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure215_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

@@ -171,13 +171,15 @@ export class HierarchyScanPage {
   readonly hasNextPage: boolean;
   readonly nextPageCursorToken: string | undefined;
 }
-/**
- * Public wrapper for ProllyTree exported to JavaScript.
- */
+export class IndexedDBStore {
+  free(): void;
+  constructor(db_name: string);
+  readonly name: string;
+}
 export class PTree {
   free(): void;
   constructor(options?: TreeConfigOptions | null);
-  static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
+  static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<LoadTreeFromFileBytesFnReturn>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;

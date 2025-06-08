@@ -6,8 +6,9 @@ use crate::error::Result; // Using our custom Result type
 
 /// Trait for a content-addressable chunk store.
 /// Implementations are responsible for storing and retrieving opaque byte chunks.
-#[async_trait]
-pub trait ChunkStore: Send + Sync + std::fmt::Debug + 'static {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait ChunkStore: std::fmt::Debug + 'static {
     /// Retrieves a chunk by its hash.
     /// Returns `Ok(None)` if the chunk is not found.
     async fn get(&self, hash: &Hash) -> Result<Option<Vec<u8>>>;
@@ -35,8 +36,4 @@ pub trait ChunkStore: Send + Sync + std::fmt::Debug + 'static {
     /// For very large stores, an asynchronous iterator might be more memory-efficient,
     /// but Vec<Hash> is simpler for now.
     async fn all_hashes(&self) -> Result<Vec<Hash>>;
-
-    // Future considerations:
-    // async fn delete(&self, hash: &Hash) -> Result<()>; // Old single delete, now covered by delete_batch
-    // async fn flush(&self) -> Result<()>; // If the store buffers writes
 }

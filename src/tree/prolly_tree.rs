@@ -1,32 +1,32 @@
+// src/tree/prolly_tree.rs
+
 use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
 
 use crate::common::{Hash, Key, Value, TreeConfig};
 use crate::error::{Result, ProllyError};
 use crate::node::definition::{Node, LeafEntry, InternalEntry, ValueRepr};
-use crate::store::ChunkStore;
 use crate::diff::{diff_trees, DiffEntry};
 use crate::gc::GarbageCollector;
 
+// Corrected dependencies
+use crate::platform::{PlatformStore, BoxFuture};
 use super::cursor::Cursor;
-use super::types::{ScanArgs, ScanPage, ProcessedNodeUpdate, DeleteRecursionResult}; 
+use super::types::{ScanArgs, ScanPage, ProcessedNodeUpdate, DeleteRecursionResult};
 use super::{io, core_logic};
-
 use super::hierarchy_cursor::HierarchyCursor;
 use super::types::{HierarchyScanArgs, HierarchyScanPage, HierarchyItem};
 
 #[derive(Debug)]
-pub struct ProllyTree<S: ChunkStore> {
+pub struct ProllyTree<S: PlatformStore> {
     pub root_hash: Option<Hash>,
     pub store: Arc<S>,
     pub config: TreeConfig,
 }
 
-impl<S: ChunkStore> ProllyTree<S> {
+impl<S: PlatformStore> ProllyTree<S> {
     pub fn new(store: Arc<S>, config: TreeConfig) -> Self {
         if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 || config.target_fanout == 0 {
-            panic!("Invalid TreeConfig: fanout values are not configured properly. min_fanout must be > 0, target_fanout >= 2 * min_fanout.");
+            panic!("Invalid TreeConfig: fanout values are not configured properly.");
         }
         ProllyTree {
             root_hash: None,
@@ -46,14 +46,12 @@ impl<S: ChunkStore> ProllyTree<S> {
         store: Arc<S>,
         config: TreeConfig,
     ) -> Result<Self> {
-        // Validate config like in new()
         if config.min_fanout == 0 || config.target_fanout < config.min_fanout * 2 || config.target_fanout == 0 {
-            // Or return a Result::Err
             panic!("Invalid TreeConfig for from_root_hash");
         }
         match store.get(&root_hash).await? {
             Some(bytes) => {
-                Node::decode(&bytes)?; // Ensure root hash points to a valid node
+                Node::decode(&bytes)?;
                 Ok(ProllyTree {
                     root_hash: Some(root_hash),
                     store,
@@ -73,17 +71,14 @@ impl<S: ChunkStore> ProllyTree<S> {
             Some(h) => h,
             None => return Ok(None),
         };
-        // Delegate to core_logic
         self.recursive_get_impl(current_root_hash, key.clone()).await
     }
-    
-    // Wrapper for core_logic's implementation
+
     fn recursive_get_impl<'s>(
         &'s self,
         node_hash: Hash,
         key: Key,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<Value>>> + Send + 's>>
-    where S: 's { // Ensure S outlives 's for self.store and self.config
+    ) -> BoxFuture<'s, Result<Option<Value>>> { // Use BoxFuture
         Box::pin(core_logic::get_recursive_impl(self, node_hash, key))
     }
 
@@ -94,20 +89,17 @@ impl<S: ChunkStore> ProllyTree<S> {
         let current_root_hash = match self.root_hash {
             Some(h) => h,
             None => {
-                // Create new root leaf directly
                 let new_leaf_node = Node::Leaf {
                     level: 0,
                     entries: vec![LeafEntry { key, value: value_repr }],
                 };
-                // Use io module to store it
                 let (_boundary_key, new_root_hash_val) = io::store_node_and_get_key_hash_pair(&self.store, &new_leaf_node).await?;
                 self.root_hash = Some(new_root_hash_val);
                 return Ok(());
             }
         };
-        
-        let root_node = self.load_node(&current_root_hash).await?; // Need level of root
-        // Delegate to core_logic's recursive_insert_impl
+
+        let root_node = self.load_node(&current_root_hash).await?;
         let update_result = self.recursive_insert_impl(current_root_hash, key, value_repr, root_node.level()).await?;
 
         self.root_hash = Some(update_result.new_hash);
@@ -119,7 +111,7 @@ impl<S: ChunkStore> ProllyTree<S> {
             let new_root_children = vec![
                 InternalEntry {
                     boundary_key: old_root_as_left_child_boundary,
-                    child_hash: self.root_hash.unwrap(), // This is new_hash from update_result
+                    child_hash: self.root_hash.unwrap(),
                     num_items_subtree: old_root_as_left_child_item_count,
                 },
                 InternalEntry {
@@ -137,15 +129,13 @@ impl<S: ChunkStore> ProllyTree<S> {
         Ok(())
     }
 
-    // Wrapper for core_logic's implementation
     fn recursive_insert_impl<'s>(
-        &'s self, // Pass &self as core_logic needs access to store, config via tree
+        &'s self,
         node_hash: Hash,
         key: Key,
         value_repr: ValueRepr,
         level: u8,
-    ) -> Pin<Box<dyn Future<Output = Result<ProcessedNodeUpdate>> + Send + 's>> 
-    where S: 's {
+    ) -> BoxFuture<'s, Result<ProcessedNodeUpdate>> { // Use BoxFuture
         Box::pin(core_logic::insert_recursive_impl(self, node_hash, key, value_repr, level))
     }
 
@@ -167,14 +157,12 @@ impl<S: ChunkStore> ProllyTree<S> {
         let root_level = root_node.level();
         let mut key_was_actually_deleted = false;
 
-        // Delegate to core_logic's recursive_delete_impl
         let result = self.recursive_delete_impl(current_root_hash, key, root_level, &mut key_was_actually_deleted).await?;
-        
+
         match result {
             DeleteRecursionResult::NotFound { .. } => Ok(key_was_actually_deleted),
             DeleteRecursionResult::Updated(update_info) => {
                 self.root_hash = Some(update_info.new_hash);
-                // Check if root became an internal node with a single child, then collapse
                 let potentially_new_root_node = self.load_node(&self.root_hash.unwrap()).await?;
                 if let Node::Internal { ref children, .. } = potentially_new_root_node {
                     if children.len() == 1 {
@@ -184,31 +172,27 @@ impl<S: ChunkStore> ProllyTree<S> {
                 Ok(key_was_actually_deleted)
             }
             DeleteRecursionResult::Merged => {
-                self.root_hash = None; // Tree is now empty
+                self.root_hash = None;
                 Ok(key_was_actually_deleted)
             }
         }
     }
 
-    // Wrapper for core_logic's implementation
     fn recursive_delete_impl<'s>(
-        &'s self, // Pass &self
+        &'s self,
         node_hash: Hash,
-        key: &'s Key, // Key lifetime tied to 's
+        key: &'s Key,
         level: u8,
-        key_actually_deleted_flag: &'s mut bool, // Flag lifetime tied to 's
-    ) -> Pin<Box<dyn Future<Output = Result<DeleteRecursionResult>> + Send + 's>>
-    where S: 's {
+        key_actually_deleted_flag: &'s mut bool,
+    ) -> BoxFuture<'s, Result<DeleteRecursionResult>> { // Use BoxFuture
         Box::pin(core_logic::delete_recursive_impl(self, node_hash, key, level, key_actually_deleted_flag))
     }
 
     pub async fn checkout(&mut self, hash: Option<Hash>) -> Result<()> {
         if let Some(h) = hash {
-            // Validate the hash points to a valid node before updating the root
             self.load_node(&h).await?;
             self.root_hash = Some(h);
         } else {
-            // If None is passed, checkout to an empty tree
             self.root_hash = None;
         }
         Ok(())
@@ -228,7 +212,7 @@ impl<S: ChunkStore> ProllyTree<S> {
             }
         }
     }
-    
+
 
     pub async fn cursor_start(&self) -> Result<Cursor<S>> {
         Cursor::new_at_start(self).await
@@ -270,10 +254,9 @@ impl<S: ChunkStore> ProllyTree<S> {
                 items_to_fetch = Some(0);
             }
         }
-      
+
         let mut cursor = Cursor::new_for_scan(self, &args).await?;
         let mut first_item_key: Option<Key> = None;
-        // let mut last_item_key_in_page: Option<Key> = None; // Not strictly needed for ScanPage result
 
         if items_to_fetch != Some(0) {
             for _i in 0..items_to_fetch.unwrap_or(usize::MAX) {
@@ -284,17 +267,15 @@ impl<S: ChunkStore> ProllyTree<S> {
                         }
 
                         if items_to_fetch.is_some() && collected_items.len() < args.limit.unwrap_or(usize::MAX) {
-                            // last_item_key_in_page = Some(key.clone());
                             collected_items.push((key, value));
                         } else if items_to_fetch.is_some() && collected_items.len() == args.limit.unwrap_or(usize::MAX) {
                             actual_next_item_for_cursor = Some((key, value));
-                            break; 
+                            break;
                         } else if items_to_fetch.is_none() {
-                            // last_item_key_in_page = Some(key.clone());
                             collected_items.push((key, value));
                         }
                     }
-                    None => break, 
+                    None => break,
                 }
             }
         }
@@ -308,19 +289,17 @@ impl<S: ChunkStore> ProllyTree<S> {
             has_next_page: final_has_next_page,
             has_previous_page: calculated_has_previous_page,
             next_page_cursor: actual_next_item_for_cursor.map(|(k, _v)| k),
-            previous_page_cursor: first_item_key, // Or last_item_key_in_page if logic for prev cursor is different
+            previous_page_cursor: first_item_key,
         })
     }
 
     pub async fn hierarchy_scan(&self, args: HierarchyScanArgs) -> Result<HierarchyScanPage> {
-        let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?; //
-        
-        // --- Handle offset: Skip items if offset is provided ---
+        let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?;
+
         if let Some(offset_val) = args.offset {
-            if offset_val > 0 { // Only skip if offset is greater than 0
+            if offset_val > 0 {
                 for _in_offset_loop in 0..offset_val {
-                    if cursor.next_item().await?.is_none() { //
-                        // Offset is beyond the total number of available items
+                    if cursor.next_item().await?.is_none() {
                         return Ok(HierarchyScanPage {
                             items: Vec::new(),
                             has_next_page: false,
@@ -330,15 +309,13 @@ impl<S: ChunkStore> ProllyTree<S> {
                 }
             }
         }
-        // --- End offset handling ---
-        
-        let mut collected_items: Vec<HierarchyItem> = Vec::new(); //
+
+        let mut collected_items: Vec<HierarchyItem> = Vec::new();
         let mut has_next_page = false;
         let limit = args.limit.unwrap_or(usize::MAX);
 
-        if args.limit == Some(0) { // Handle explicit request for 0 items
-            // Check if there's at least one item *after the offset*
-            has_next_page = cursor.next_item().await?.is_some(); //
+        if args.limit == Some(0) {
+            has_next_page = cursor.next_item().await?.is_some();
             return Ok(HierarchyScanPage {
                 items: Vec::new(),
                 has_next_page,
@@ -346,8 +323,6 @@ impl<S: ChunkStore> ProllyTree<S> {
             });
         }
 
-        // Try to fetch one more item than the limit to determine hasNextPage
-        // Only loop up to limit + 1 if limit is not usize::MAX to prevent overflow
         let iterations = if limit == usize::MAX { usize::MAX } else { limit + 1 };
 
         for _i in 0..iterations {
@@ -356,18 +331,16 @@ impl<S: ChunkStore> ProllyTree<S> {
                     if collected_items.len() < limit {
                         collected_items.push(item);
                     } else {
-                        // This is the (limit + 1)-th item (or more if limit was usize::MAX but we shouldn't reach here)
-                        has_next_page = true; 
-                        break; // Stop collecting, we just needed to know it exists
+                        has_next_page = true;
+                        break;
                     }
                 }
-                None => { // No more items from cursor
-                    // has_next_page remains false if we didn't collect (limit + 1) items
+                None => {
                     break;
                 }
             }
         }
-        
+
         Ok(HierarchyScanPage {
             items: collected_items,
             has_next_page,
