@@ -185,6 +185,12 @@ export class PTree {
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
   checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
+  getRootHash(): Promise<GetRootHashFnReturn>;
+  exportChunks(): Promise<ExportChunksFnReturn>;
+  cursorStart(): Promise<any>;
+  seek(key_js: Uint8Array): Promise<any>;
+  diffRoots(_root_h_left_js?: Uint8Array | null, root_h_right_js?: Uint8Array | null): Promise<DiffRootsFnReturn>;
+  triggerGc(live_hashes_js_val: any): Promise<TriggerGcFnReturn>;
   getTreeConfig(): Promise<GetTreeConfigFnReturn>;
   scanItems(options: ScanOptions): Promise<ScanItemsFnReturn>;
   countAllItems(): Promise<CountAllItemsFnReturn>;
@@ -221,12 +227,21 @@ export interface InitOutput {
   readonly ptree_insertBatch: (a: number, b: any) => any;
   readonly ptree_delete: (a: number, b: any) => any;
   readonly ptree_checkout: (a: number, b: number) => any;
+  readonly ptree_getRootHash: (a: number) => any;
+  readonly ptree_exportChunks: (a: number) => any;
+  readonly ptree_cursorStart: (a: number) => any;
+  readonly ptree_seek: (a: number, b: any) => any;
+  readonly ptree_diffRoots: (a: number, b: number, c: number) => any;
+  readonly ptree_triggerGc: (a: number, b: any) => any;
   readonly ptree_getTreeConfig: (a: number) => any;
   readonly ptree_scanItems: (a: number, b: any) => any;
   readonly ptree_countAllItems: (a: number) => any;
   readonly ptree_hierarchyScan: (a: number, b: number) => any;
   readonly ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;
   readonly ptree_loadTreeFromFileBytes: (a: any) => any;
+  readonly __wbg_indexeddbstore_free: (a: number, b: number) => void;
+  readonly indexeddbstore_new: (a: number, b: number) => any;
+  readonly indexeddbstore_name: (a: number) => [number, number];
   readonly __wbg_scanpage_free: (a: number, b: number) => void;
   readonly scanpage_items: (a: number) => any;
   readonly scanpage_has_next_page: (a: number) => number;
@@ -237,9 +252,6 @@ export interface InitOutput {
   readonly hierarchyscanpage_items: (a: number) => any;
   readonly hierarchyscanpage_has_next_page: (a: number) => number;
   readonly hierarchyscanpage_next_page_cursor_token: (a: number) => [number, number];
-  readonly __wbg_indexeddbstore_free: (a: number, b: number) => void;
-  readonly indexeddbstore_new: (a: number, b: number) => any;
-  readonly indexeddbstore_name: (a: number) => [number, number];
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
@@ -249,8 +261,8 @@ export interface InitOutput {
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export_7: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
-  readonly closure151_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure173_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure193_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure215_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

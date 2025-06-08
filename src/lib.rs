@@ -195,8 +195,6 @@ impl PTree {
         JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
-    // Other methods like insert, delete, etc., would follow the same pattern as `get`.
-    // I am including the full, corrected code for them below.
 
     #[wasm_bindgen]
     pub fn insert(&self, key_js: &JsUint8Array, value_js: &JsUint8Array) -> PromiseInsertFnReturn {
@@ -251,6 +249,92 @@ impl PTree {
         let hash_opt = hash_js.map(|h| { let mut hash = [0;32]; h.copy_to(&mut hash); hash });
         let future = async_to_promise!(self, |mut tree| {
             tree.checkout(hash_opt).await.map(|_| JsValue::UNDEFINED).map_err(prolly_error_to_jsvalue)
+        });
+        JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = "getRootHash")]
+    pub fn get_root_hash(&self) -> PromiseGetRootHashFnReturn {
+        let future = async_to_promise!(self, |tree| {
+            Ok(tree.get_root_hash().map_or(JsValue::NULL, |h| JsUint8Array::from(&h[..]).into()))
+        });
+        JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = "exportChunks")]
+    pub fn export_chunks(&self) -> PromiseExportChunksFnReturn {
+        let future = async_to_promise!(self, |tree| {
+            let all_chunks = tree.store.get_all_chunks_for_test().await;
+            let js_map = JsMap::new();
+            for (h, d) in all_chunks {
+                js_map.set(&JsUint8Array::from(&h[..]).into(), &JsUint8Array::from(&d[..]).into());
+            }
+            Ok(js_map.into())
+        });
+        JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = cursorStart)]
+    pub fn cursor_start(&self) -> Promise {
+        let future = async_to_promise!(self, |tree| {
+             tree.cursor_start().await
+                 .map(|c| PTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
+                 .map_err(prolly_error_to_jsvalue)
+        });
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
+    #[wasm_bindgen]
+    pub fn seek(&self, key_js: &JsUint8Array) -> Promise {
+        let key = key_js.to_vec();
+        let future = async_to_promise!(self, |tree| {
+             tree.seek(&key).await
+                .map(|c| PTreeCursor{inner:Arc::new(tokio::sync::Mutex::new(c))}.into())
+                .map_err(prolly_error_to_jsvalue)
+        });
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
+    #[wasm_bindgen(js_name = diffRoots)]
+    pub fn diff_roots(&self, _root_h_left_js: Option<JsUint8Array>, root_h_right_js: Option<JsUint8Array>) -> PromiseDiffRootsFnReturn {
+        let h_right = root_h_right_js.map(|arr| { let mut h = [0;32]; arr.copy_to(&mut h); h });
+        
+        let future = async_to_promise!(self, |tree| {
+            // FIX: Add `.map_err(prolly_error_to_jsvalue)` before the `?`
+            let diffs = tree.diff(h_right).await.map_err(prolly_error_to_jsvalue)?;
+            
+            let res_array = JsArray::new_with_length(diffs.len() as u32);
+            for (i, entry) in diffs.iter().enumerate() {
+                let obj = Object::new();
+                Reflect::set(&obj, &"key".into(), &JsUint8Array::from(entry.key.as_slice()).into())?;
+                if let Some(ref lv) = entry.left_value { Reflect::set(&obj, &"leftValue".into(), &JsUint8Array::from(lv.as_slice()).into())?; }
+                if let Some(ref rv) = entry.right_value { Reflect::set(&obj, &"rightValue".into(), &JsUint8Array::from(rv.as_slice()).into())?; }
+                res_array.set(i as u32, obj.into());
+            }
+            Ok(res_array.into())
+        });
+        JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = triggerGc)]
+    pub fn trigger_gc(&self, live_hashes_js_val: &JsValue) -> PromiseTriggerGcFnReturn {
+        let live_hashes_array: JsArray = match live_hashes_js_val.dyn_ref::<JsArray>() {
+            Some(arr) => arr.clone(),
+            None => return JsValue::from(Promise::reject(&JsValue::from_str("triggerGc expects an array."))).into(),
+        };
+
+        let future = async_to_promise!(self, |tree| {
+            let mut live_hashes_rust: Vec<Hash> = Vec::new();
+            for i in 0..live_hashes_array.length() {
+                 let js_u8: JsUint8Array = live_hashes_array.get(i).dyn_into().map_err(|_| prolly_error_to_jsvalue(ProllyError::JsBindingError(format!("Hash at index {} not Uint8Array.", i))))?;
+                 if js_u8.length() != 32 { return Err(prolly_error_to_jsvalue(ProllyError::JsBindingError(format!("Hash at index {} invalid length: {}.", i, js_u8.length())))); }
+                 let mut h=[0u8;32];
+                 js_u8.copy_to(&mut h);
+                 live_hashes_rust.push(h);
+            }
+            tree.gc(&live_hashes_rust).await
+                .map(|c| JsValue::from_f64(c as f64))
+                .map_err(prolly_error_to_jsvalue)
         });
         JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }

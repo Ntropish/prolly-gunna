@@ -217,11 +217,11 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 function __wbg_adapter_48(arg0, arg1, arg2) {
-    wasm.closure151_externref_shim(arg0, arg1, arg2);
+    wasm.closure193_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_131(arg0, arg1, arg2, arg3) {
-    wasm.closure173_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_143(arg0, arg1, arg2, arg3) {
+    wasm.closure215_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 const HierarchyScanPageFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -417,6 +417,52 @@ export class PTree {
         return ret;
     }
     /**
+     * @returns {Promise<GetRootHashFnReturn>}
+     */
+    getRootHash() {
+        const ret = wasm.ptree_getRootHash(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Promise<ExportChunksFnReturn>}
+     */
+    exportChunks() {
+        const ret = wasm.ptree_exportChunks(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Promise<any>}
+     */
+    cursorStart() {
+        const ret = wasm.ptree_cursorStart(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {Uint8Array} key_js
+     * @returns {Promise<any>}
+     */
+    seek(key_js) {
+        const ret = wasm.ptree_seek(this.__wbg_ptr, key_js);
+        return ret;
+    }
+    /**
+     * @param {Uint8Array | null} [_root_h_left_js]
+     * @param {Uint8Array | null} [root_h_right_js]
+     * @returns {Promise<DiffRootsFnReturn>}
+     */
+    diffRoots(_root_h_left_js, root_h_right_js) {
+        const ret = wasm.ptree_diffRoots(this.__wbg_ptr, isLikeNone(_root_h_left_js) ? 0 : addToExternrefTable0(_root_h_left_js), isLikeNone(root_h_right_js) ? 0 : addToExternrefTable0(root_h_right_js));
+        return ret;
+    }
+    /**
+     * @param {any} live_hashes_js_val
+     * @returns {Promise<TriggerGcFnReturn>}
+     */
+    triggerGc(live_hashes_js_val) {
+        const ret = wasm.ptree_triggerGc(this.__wbg_ptr, live_hashes_js_val);
+        return ret;
+    }
+    /**
      * @returns {Promise<GetTreeConfigFnReturn>}
      */
     getTreeConfig() {
@@ -471,6 +517,14 @@ const PTreeCursorFinalization = (typeof FinalizationRegistry === 'undefined')
     : new FinalizationRegistry(ptr => wasm.__wbg_ptreecursor_free(ptr >>> 0, 1));
 
 export class PTreeCursor {
+
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(PTreeCursor.prototype);
+        obj.__wbg_ptr = ptr;
+        PTreeCursorFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
 
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -691,7 +745,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_131(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_143(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -704,6 +758,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_new_405e22f390576ce2 = function() {
         const ret = new Object();
+        return ret;
+    };
+    imports.wbg.__wbg_new_5e0be73521bc8c17 = function() {
+        const ret = new Map();
         return ret;
     };
     imports.wbg.__wbg_new_a12002a7f91c75be = function(arg0) {
@@ -738,6 +796,10 @@ function __wbg_get_imports() {
         const ret = PTree.__wrap(arg0);
         return ret;
     };
+    imports.wbg.__wbg_ptreecursor_new = function(arg0) {
+        const ret = PTreeCursor.__wrap(arg0);
+        return ret;
+    };
     imports.wbg.__wbg_queueMicrotask_97d92b4fcc8a61c5 = function(arg0) {
         queueMicrotask(arg0);
     };
@@ -765,6 +827,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_set_65595bdd868b3009 = function(arg0, arg1, arg2) {
         arg0.set(arg1, arg2 >>> 0);
+    };
+    imports.wbg.__wbg_set_8fc6bf8a5b1071d1 = function(arg0, arg1, arg2) {
+        const ret = arg0.set(arg1, arg2);
+        return ret;
     };
     imports.wbg.__wbg_set_bb8cecf6a62b9f46 = function() { return handleError(function (arg0, arg1, arg2) {
         const ret = Reflect.set(arg0, arg1, arg2);
@@ -826,8 +892,8 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper636 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 152, __wbg_adapter_48);
+    imports.wbg.__wbindgen_closure_wrapper751 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 194, __wbg_adapter_48);
         return ret;
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
