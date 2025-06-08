@@ -131,6 +131,29 @@ console.log(diffs);
 */
 ```
 
+### Checking out a Previous Version
+
+You can instantly revert the live state of the tree to any previous version using its root hash.
+
+```typescript
+const tree = new PTree();
+await tree.insert(toU8("a"), toU8("1"));
+const hashV1 = await tree.getRootHash();
+
+await tree.insert(toU8("b"), toU8("2"));
+const hashV2 = await tree.getRootHash();
+
+// The tree is currently at version 2
+console.log(u8ToString(await tree.get(toU8("b")))); // "2"
+
+// Checkout version 1
+await tree.checkout(hashV1);
+
+// The tree is now in the state of version 1
+console.log(await tree.get(toU8("b"))); // null
+console.log(u8ToString(await tree.get(toU8("a")))); // "1"
+```
+
 ### Scanning and Iteration
 
 Efficiently query ranges of data with powerful scanning options.
@@ -262,6 +285,10 @@ Inserts an array of key-value pairs efficiently.
 `delete(key: Uint8Array): Promise<boolean>`
 
 Deletes a key-value pair. Returns true if the key was found and deleted.
+
+`checkout(hash: Uint8Array | null): Promise<void>`
+
+Resets the tree's root to a specific hash, effectively checking out a previous version. Pass null to reset to an empty tree.
 
 `getRootHash(): Promise<Uint8Array | null>`
 

@@ -33,11 +33,11 @@ fn prolly_error_to_jsvalue(err: ProllyError) -> JsValue {
 }
 
 macro_rules! async_to_promise {
-    ($self:ident, |$tree:ident| $async_block:expr) => {{
+    ($self:ident, |$tree_pattern:pat_param| $async_block:expr) => {{
         let tree_clone = Arc::clone(&$self.inner);
         let (tx, rx) = oneshot::channel();
         spawn_local(async move {
-            let $tree = tree_clone.lock().await;
+            let $tree_pattern = tree_clone.lock().await;
             let result: Result<JsValue, JsValue> = (async { $async_block }).await;
             let _ = tx.send(result);
         });
@@ -180,7 +180,8 @@ impl PTree {
             Ok(PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into())
         };
 
-        wasm_bindgen_futures::future_to_promise(async { future.await.map_err(prolly_error_to_jsvalue) }).into()
+        let promise = wasm_bindgen_futures::future_to_promise(async { future.await.map_err(prolly_error_to_jsvalue) });
+        JsValue::from(promise).into()
     }
 
     #[wasm_bindgen]
@@ -209,17 +210,17 @@ impl PTree {
         JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
     
-    // The rest of the methods implemented fully...
     #[wasm_bindgen(js_name = insertBatch)]
     pub fn insert_batch(&self, items_js_val: &JsValue) -> PromiseInsertBatchFnReturn {
         let items_array: JsArray = match items_js_val.dyn_ref::<JsArray>() {
             Some(arr) => arr.clone(),
-            None => return Promise::reject(&JsValue::from_str("insertBatch expects an array.")).into(),
+            None => return JsValue::from(Promise::reject(&JsValue::from_str("insertBatch expects an array."))).into(),
         };
-        let future = async_to_promise!(self, |tree| {
+        let future = async_to_promise!(self, |mut tree| {
             let mut items_rust = Vec::with_capacity(items_array.length() as usize);
             for i in 0..items_array.length() {
                 let pair_val = items_array.get(i);
+                // This validation returns Result<_, JsValue> which is correct
                 let pair_array = pair_val.dyn_into::<JsArray>().map_err(|_| prolly_error_to_jsvalue(ProllyError::JsBindingError(format!("Item at index {} is not an array", i))))?;
                 if pair_array.length() != 2 { return Err(prolly_error_to_jsvalue(ProllyError::JsBindingError(format!("Item at index {} is not a pair", i)))); }
 
@@ -227,7 +228,11 @@ impl PTree {
                 let value_u8 = pair_array.get(1).dyn_into::<JsUint8Array>().map_err(|_| prolly_error_to_jsvalue(ProllyError::JsBindingError(format!("Value at index {} is not a Uint8Array", i))))?.to_vec();
                 items_rust.push((key_u8, value_u8));
             }
-            tree.insert_batch(items_rust).await.map(|_| JsValue::UNDEFINED).map_err(prolly_error_to_jsvalue)
+            
+            // FIX IS HERE: map the ProllyError to a JsValue to match the block's return type
+            tree.insert_batch(items_rust).await
+                .map(|_| JsValue::UNDEFINED)
+                .map_err(prolly_error_to_jsvalue) // Add this line
         });
         JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
@@ -312,6 +317,7 @@ impl PTree {
     #[wasm_bindgen(js_name = loadTreeFromFileBytes)]
     pub fn load_tree_from_file_bytes(file_bytes_js: &JsUint8Array) -> PromiseLoadTreeFromFileBytesFnReturn {
         let file_bytes = file_bytes_js.to_vec();
+        
         let future = async move {
             let (root_hash_opt, tree_config, chunks_map_rust, _description) = read_prly_tree_v2(&file_bytes)?;
             let store_instance = InMemoryStore::new();
@@ -337,6 +343,7 @@ impl PTree {
             future.await.map_err(prolly_error_to_jsvalue)
         };
 
-        JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+        // FIX: Pass the `promise_future` here instead of the original `future`.
+        JsValue::from(wasm_bindgen_futures::future_to_promise(promise_future)).into()
     }
 }

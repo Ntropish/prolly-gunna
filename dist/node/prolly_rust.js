@@ -2,6 +2,7 @@
 let imports = {};
 imports['__wbindgen_placeholder__'] = module.exports;
 let wasm;
+const { openDb } = require(String.raw`./snippets/prolly-rust-adf52c9dffa444c2/src/store/indexed_db_helpers.js`);
 const { TextEncoder, TextDecoder } = require(`util`);
 
 let WASM_VECTOR_LEN = 0;
@@ -218,12 +219,12 @@ function takeFromExternrefTable0(idx) {
     wasm.__externref_table_dealloc(idx);
     return value;
 }
-function __wbg_adapter_50(arg0, arg1, arg2) {
-    wasm.closure149_externref_shim(arg0, arg1, arg2);
+function __wbg_adapter_48(arg0, arg1, arg2) {
+    wasm.closure151_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_147(arg0, arg1, arg2, arg3) {
-    wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_131(arg0, arg1, arg2, arg3) {
+    wasm.closure173_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 const HierarchyScanPageFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -280,12 +281,62 @@ class HierarchyScanPage {
 }
 module.exports.HierarchyScanPage = HierarchyScanPage;
 
+const IndexedDBStoreFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_indexeddbstore_free(ptr >>> 0, 1));
+
+class IndexedDBStore {
+
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(IndexedDBStore.prototype);
+        obj.__wbg_ptr = ptr;
+        IndexedDBStoreFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        IndexedDBStoreFinalization.unregister(this);
+        return ptr;
+    }
+
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_indexeddbstore_free(ptr, 0);
+    }
+    /**
+     * @param {string} db_name
+     */
+    constructor(db_name) {
+        const ptr0 = passStringToWasm0(db_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.indexeddbstore_new(ptr0, len0);
+        return ret;
+    }
+    /**
+     * @returns {string}
+     */
+    get name() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.indexeddbstore_name(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+}
+module.exports.IndexedDBStore = IndexedDBStore;
+
 const PTreeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_ptree_free(ptr >>> 0, 1));
-/**
- * Public wrapper for ProllyTree exported to JavaScript.
- */
+
 class PTree {
 
     static __wrap(ptr) {
@@ -323,7 +374,7 @@ class PTree {
      * @param {Uint8Array | null | undefined} root_hash_js
      * @param {Map<any, any>} chunks_js
      * @param {TreeConfigOptions | null} [tree_config_options]
-     * @returns {Promise<any>}
+     * @returns {Promise<LoadTreeFromFileBytesFnReturn>}
      */
     static load(root_hash_js, chunks_js, tree_config_options) {
         const ret = wasm.ptree_load(isLikeNone(root_hash_js) ? 0 : addToExternrefTable0(root_hash_js), chunks_js, isLikeNone(tree_config_options) ? 0 : addToExternrefTable0(tree_config_options));
@@ -368,52 +419,6 @@ class PTree {
      */
     checkout(hash_js) {
         const ret = wasm.ptree_checkout(this.__wbg_ptr, isLikeNone(hash_js) ? 0 : addToExternrefTable0(hash_js));
-        return ret;
-    }
-    /**
-     * @returns {Promise<GetRootHashFnReturn>}
-     */
-    getRootHash() {
-        const ret = wasm.ptree_getRootHash(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {Promise<ExportChunksFnReturn>}
-     */
-    exportChunks() {
-        const ret = wasm.ptree_exportChunks(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {Promise<any>}
-     */
-    cursorStart() {
-        const ret = wasm.ptree_cursorStart(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @param {Uint8Array} key_js
-     * @returns {Promise<any>}
-     */
-    seek(key_js) {
-        const ret = wasm.ptree_seek(this.__wbg_ptr, key_js);
-        return ret;
-    }
-    /**
-     * @param {Uint8Array | null} [root_h_left_js]
-     * @param {Uint8Array | null} [root_h_right_js]
-     * @returns {Promise<DiffRootsFnReturn>}
-     */
-    diffRoots(root_h_left_js, root_h_right_js) {
-        const ret = wasm.ptree_diffRoots(this.__wbg_ptr, isLikeNone(root_h_left_js) ? 0 : addToExternrefTable0(root_h_left_js), isLikeNone(root_h_right_js) ? 0 : addToExternrefTable0(root_h_right_js));
-        return ret;
-    }
-    /**
-     * @param {any} live_hashes_js_val
-     * @returns {Promise<TriggerGcFnReturn>}
-     */
-    triggerGc(live_hashes_js_val) {
-        const ret = wasm.ptree_triggerGc(this.__wbg_ptr, live_hashes_js_val);
         return ret;
     }
     /**
@@ -472,14 +477,6 @@ const PTreeCursorFinalization = (typeof FinalizationRegistry === 'undefined')
     : new FinalizationRegistry(ptr => wasm.__wbg_ptreecursor_free(ptr >>> 0, 1));
 
 class PTreeCursor {
-
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(PTreeCursor.prototype);
-        obj.__wbg_ptr = ptr;
-        PTreeCursorFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
 
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -588,12 +585,6 @@ module.exports.__wbg_call_7cccdd69e0791ae2 = function() { return handleError(fun
     return ret;
 }, arguments) };
 
-module.exports.__wbg_debug_07010e9cfe65fce9 = function(arg0, arg1) {
-    var v0 = getArrayJsValueFromWasm0(arg0, arg1).slice();
-    wasm.__wbindgen_free(arg0, arg1 * 4, 4);
-    console.debug(...v0);
-};
-
 module.exports.__wbg_done_769e5ede4b31c67b = function(arg0) {
     const ret = arg0.done;
     return ret;
@@ -627,6 +618,11 @@ module.exports.__wbg_getwithrefkey_1dc361bd10053bfe = function(arg0, arg1) {
 
 module.exports.__wbg_hierarchyscanpage_new = function(arg0) {
     const ret = HierarchyScanPage.__wrap(arg0);
+    return ret;
+};
+
+module.exports.__wbg_indexeddbstore_new = function(arg0) {
+    const ret = IndexedDBStore.__wrap(arg0);
     return ret;
 };
 
@@ -689,7 +685,7 @@ module.exports.__wbg_new_23a2665fac83c611 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wbg_adapter_147(a, state0.b, arg0, arg1);
+                return __wbg_adapter_131(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -703,16 +699,6 @@ module.exports.__wbg_new_23a2665fac83c611 = function(arg0, arg1) {
 
 module.exports.__wbg_new_405e22f390576ce2 = function() {
     const ret = new Object();
-    return ret;
-};
-
-module.exports.__wbg_new_5e0be73521bc8c17 = function() {
-    const ret = new Map();
-    return ret;
-};
-
-module.exports.__wbg_new_78feb108b6472713 = function() {
-    const ret = new Array();
     return ret;
 };
 
@@ -746,18 +732,13 @@ module.exports.__wbg_next_6574e1a8a62d1055 = function() { return handleError(fun
     return ret;
 }, arguments) };
 
+module.exports.__wbg_openDb_41807941c96053ba = function() { return handleError(function (arg0, arg1) {
+    const ret = openDb(getStringFromWasm0(arg0, arg1));
+    return ret;
+}, arguments) };
+
 module.exports.__wbg_ptree_new = function(arg0) {
     const ret = PTree.__wrap(arg0);
-    return ret;
-};
-
-module.exports.__wbg_ptreecursor_new = function(arg0) {
-    const ret = PTreeCursor.__wrap(arg0);
-    return ret;
-};
-
-module.exports.__wbg_push_737cfc8c1432c2c6 = function(arg0, arg1) {
-    const ret = arg0.push(arg1);
     return ret;
 };
 
@@ -797,11 +778,6 @@ module.exports.__wbg_set_65595bdd868b3009 = function(arg0, arg1, arg2) {
     arg0.set(arg1, arg2 >>> 0);
 };
 
-module.exports.__wbg_set_8fc6bf8a5b1071d1 = function(arg0, arg1, arg2) {
-    const ret = arg0.set(arg1, arg2);
-    return ret;
-};
-
 module.exports.__wbg_set_bb8cecf6a62b9f46 = function() { return handleError(function (arg0, arg1, arg2) {
     const ret = Reflect.set(arg0, arg1, arg2);
     return ret;
@@ -832,15 +808,14 @@ module.exports.__wbg_then_44b73946d2fb3e7d = function(arg0, arg1) {
     return ret;
 };
 
-module.exports.__wbg_value_cd1ffa7b1ab794f1 = function(arg0) {
-    const ret = arg0.value;
+module.exports.__wbg_then_48b406749878a531 = function(arg0, arg1, arg2) {
+    const ret = arg0.then(arg1, arg2);
     return ret;
 };
 
-module.exports.__wbg_warn_1529a2c662795cd8 = function(arg0, arg1) {
-    var v0 = getArrayJsValueFromWasm0(arg0, arg1).slice();
-    wasm.__wbindgen_free(arg0, arg1 * 4, 4);
-    console.warn(...v0);
+module.exports.__wbg_value_cd1ffa7b1ab794f1 = function(arg0) {
+    const ret = arg0.value;
+    return ret;
 };
 
 module.exports.__wbindgen_as_number = function(arg0) {
@@ -876,8 +851,8 @@ module.exports.__wbindgen_cb_drop = function(arg0) {
     return ret;
 };
 
-module.exports.__wbindgen_closure_wrapper577 = function(arg0, arg1, arg2) {
-    const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
+module.exports.__wbindgen_closure_wrapper636 = function(arg0, arg1, arg2) {
+    const ret = makeMutClosure(arg0, arg1, 152, __wbg_adapter_48);
     return ret;
 };
 
@@ -917,11 +892,6 @@ module.exports.__wbindgen_is_bigint = function(arg0) {
 
 module.exports.__wbindgen_is_function = function(arg0) {
     const ret = typeof(arg0) === 'function';
-    return ret;
-};
-
-module.exports.__wbindgen_is_null = function(arg0) {
-    const ret = arg0 === null;
     return ret;
 };
 
