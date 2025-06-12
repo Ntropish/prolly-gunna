@@ -95,6 +95,10 @@ extern "C" {
     pub type PromiseExportTreeToFileFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<LoadTreeFromFileBytesFnReturn>")]
     pub type PromiseLoadTreeFromFileBytesFnReturn;
+
+    // Type for the new synchronous method's return value
+    #[wasm_bindgen(typescript_type = "GetSyncFnReturn")]
+    pub type GetSyncFnReturn;
 }
 // --- End TypeScript Custom Section ---
 
@@ -256,6 +260,22 @@ impl PTree {
                 .map_err(prolly_error_to_jsvalue)
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = getSync)]
+    pub fn get_sync(&self, key_js: &JsUint8Array) -> Result<GetSyncFnReturn, JsValue> {
+        let key: Key = key_js.to_vec();
+        let tree_guard = self.inner.try_lock().map_err(|_| {
+            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
+                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
+            ))
+        })?;
+
+        match (*tree_guard).get_sync(&key) {
+            Ok(Some(value)) => Ok(JsValue::from(JsUint8Array::from(&value[..])).into()),
+            Ok(None) => Ok(JsValue::NULL.into()),
+            Err(e) => Err(prolly_error_to_jsvalue(e)),
+        }
     }
 
     #[wasm_bindgen]

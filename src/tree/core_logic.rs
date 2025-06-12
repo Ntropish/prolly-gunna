@@ -12,6 +12,38 @@ use super::prolly_tree::ProllyTree; // Used for type context and methods like lo
 use super::io;
 use super::modification;
 
+pub(super) fn get_recursive_sync_impl<S: ChunkStore>(
+    tree: &ProllyTree<S>,
+    node_hash: Hash,
+    key: &Key,
+) -> Result<Option<Value>> {
+    let node = tree.load_node_sync(&node_hash)?;
+    match node {
+        Node::Leaf { entries, .. } => {
+            match entries.binary_search_by(|e| e.key.as_slice().cmp(key.as_slice())) {
+                Ok(index) => {
+                    let entry = &entries[index];
+                    // The value loading logic is now encapsulated in the tree
+                    tree.load_value_repr_sync(&entry.value)
+                }
+                Err(_) => Ok(None),
+            }
+        }
+        Node::Internal { children, .. } => {
+            if children.is_empty() {
+                return Ok(None);
+            }
+            let mut child_idx_to_search = children.len() - 1;
+            for (idx, child_entry) in children.iter().enumerate() {
+                if key.as_slice() <= &child_entry.boundary_key {
+                    child_idx_to_search = idx;
+                    break;
+                }
+            }
+            get_recursive_sync_impl(tree, children[child_idx_to_search].child_hash, key)
+        }
+    }
+}
 
 pub(super) fn get_recursive_impl<'s, S: ChunkStore + 's>(
     tree: &'s ProllyTree<S>,

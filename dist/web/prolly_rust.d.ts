@@ -68,6 +68,8 @@ export interface DiffEntry {
 
 /** The resolved value of the `get` method: the value (Uint8Array) or null if not found. */
 export type GetFnReturn = Uint8Array | null;
+/** The synchronous return value of the `getSync` method. Throws on error. */
+export type GetSyncFnReturn = Uint8Array | null;
 /** The `insert` method resolves to void (or undefined in JS) upon completion. */
 export type InsertFnReturn = void;
 /** The `insertBatch` method resolves to void (or undefined in JS) upon completion. */
@@ -179,6 +181,7 @@ export class PTree {
   constructor(options?: TreeConfigOptions | null);
   static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
+  getSync(key_js: Uint8Array): GetSyncFnReturn;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
@@ -221,6 +224,7 @@ export interface InitOutput {
   readonly ptree_new: (a: number) => [number, number, number];
   readonly ptree_load: (a: number, b: any, c: number) => any;
   readonly ptree_get: (a: number, b: any) => any;
+  readonly ptree_getSync: (a: number, b: any) => [number, number, number];
   readonly ptree_insert: (a: number, b: any, c: any) => any;
   readonly ptree_insertBatch: (a: number, b: any) => any;
   readonly ptree_delete: (a: number, b: any) => any;

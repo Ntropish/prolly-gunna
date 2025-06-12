@@ -1,12 +1,7 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 
 import { PTree, PTreeCursor } from "../dist/node/prolly_rust.js";
 import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
-
-beforeAll(async () => {
-  // Initialize the Wasm module once before all tests
-  // await init();
-});
 
 describe("PTree", () => {
   it("should allow creating, inserting, and getting values", async () => {
@@ -27,6 +22,46 @@ describe("PTree", () => {
     expectU8Eq(result2, val2);
 
     const result3 = (await tree.get(toU8("nonexistent"))) as Uint8Array | null;
+    expect(result3).toBeNull();
+  });
+
+  it("should allow creating, inserting, and getting values synchronously with getSync", async () => {
+    const tree = new PTree();
+
+    const key1 = toU8("hello_sync");
+    const val1 = toU8("world_sync");
+    await tree.insert(key1, val1);
+
+    const key2 = toU8("goodbye_sync");
+    const val2 = toU8("moon_sync");
+    await tree.insert(key2, val2);
+
+    // Test successful sync retrieval
+    let result1: Uint8Array | null = null;
+    expect(() => {
+      result1 = tree.getSync(key1);
+    }).not.toThrow();
+    expectU8Eq(
+      result1,
+      val1,
+      "Sync get for key1 should succeed and return correct value"
+    );
+
+    let result2: Uint8Array | null = null;
+    expect(() => {
+      result2 = tree.getSync(key2);
+    }).not.toThrow();
+    expectU8Eq(
+      result2,
+      val2,
+      "Sync get for key2 should succeed and return correct value"
+    );
+
+    // Test sync retrieval of non-existent key
+    let result3: Uint8Array | null = null;
+    expect(() => {
+      result3 = tree.getSync(toU8("nonexistent_sync"));
+    }).not.toThrow();
     expect(result3).toBeNull();
   });
 

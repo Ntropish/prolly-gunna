@@ -7,6 +7,7 @@ export const ptreecursor_next: (a: number) => any;
 export const ptree_new: (a: number) => [number, number, number];
 export const ptree_load: (a: number, b: any, c: number) => any;
 export const ptree_get: (a: number, b: any) => any;
+export const ptree_getSync: (a: number, b: any) => [number, number, number];
 export const ptree_insert: (a: number, b: any, c: any) => any;
 export const ptree_insertBatch: (a: number, b: any) => any;
 export const ptree_delete: (a: number, b: any) => any;

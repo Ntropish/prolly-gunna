@@ -226,7 +226,7 @@ function __wbg_adapter_50(arg0, arg1, arg2) {
     wasm.closure149_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_147(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_148(arg0, arg1, arg2, arg3) {
     wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
 }
 
@@ -339,6 +339,17 @@ export class PTree {
     get(key_js) {
         const ret = wasm.ptree_get(this.__wbg_ptr, key_js);
         return ret;
+    }
+    /**
+     * @param {Uint8Array} key_js
+     * @returns {GetSyncFnReturn}
+     */
+    getSync(key_js) {
+        const ret = wasm.ptree_getSync(this.__wbg_ptr, key_js);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * @param {Uint8Array} key_js
@@ -689,7 +700,7 @@ export function __wbg_new_23a2665fac83c611(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wbg_adapter_147(a, state0.b, arg0, arg1);
+                return __wbg_adapter_148(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -876,7 +887,7 @@ export function __wbindgen_cb_drop(arg0) {
     return ret;
 };
 
-export function __wbindgen_closure_wrapper577(arg0, arg1, arg2) {
+export function __wbindgen_closure_wrapper587(arg0, arg1, arg2) {
     const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
     return ret;
 };

@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use crate::common::Hash;
-use crate::error::Result; // Using our custom Result type
+use crate::error::{Result, ProllyError};
 
 /// Trait for a content-addressable chunk store.
 /// Implementations are responsible for storing and retrieving opaque byte chunks.
@@ -35,6 +35,18 @@ pub trait ChunkStore: Send + Sync + std::fmt::Debug + 'static {
     /// For very large stores, an asynchronous iterator might be more memory-efficient,
     /// but Vec<Hash> is simpler for now.
     async fn all_hashes(&self) -> Result<Vec<Hash>>;
+
+    /// Synchronously retrieves a chunk by its hash.
+    /// This is a non-blocking operation that will fail if the underlying
+    /// store cannot be accessed without blocking.
+    /// Returns `Ok(None)` if the chunk is not found.
+    fn get_sync(&self, _hash: &Hash) -> Result<Option<Vec<u8>>> {
+        // Default implementation indicates that the operation is not supported.
+        // Specific implementations must override this.
+        Err(ProllyError::InvalidOperation(
+            "This store does not support synchronous get.".to_string(),
+        ))
+    }
 
     // Future considerations:
     // async fn delete(&self, hash: &Hash) -> Result<()>; // Old single delete, now covered by delete_batch

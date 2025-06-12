@@ -41,6 +41,35 @@ impl<S: ChunkStore> ProllyTree<S> {
         Node::decode(&bytes)
     }
 
+    pub(crate) fn load_node_sync(&self, hash: &Hash) -> Result<Node> {
+        let bytes = self.store.get_sync(hash)?
+            .ok_or_else(|| ProllyError::ChunkNotFound(*hash))?;
+        Node::decode(&bytes)
+    }
+
+    pub(crate) fn load_value_repr_sync(&self, value_repr: &ValueRepr) -> Result<Option<Value>> {
+        match value_repr {
+            ValueRepr::Inline(val) => Ok(Some(val.clone())),
+            ValueRepr::Chunked(data_hash) => {
+                let value_bytes = self.store.get_sync(data_hash)?
+                    .ok_or_else(|| ProllyError::ChunkNotFound(*data_hash))?;
+                Ok(Some(value_bytes))
+            }
+            ValueRepr::ChunkedSequence { chunk_hashes, total_size } => {
+                let mut reconstructed_value = Vec::with_capacity(*total_size as usize);
+                for chunk_hash in chunk_hashes {
+                    let chunk_bytes = self.store.get_sync(chunk_hash)?
+                        .ok_or_else(|| ProllyError::ChunkNotFound(*chunk_hash))?;
+                    reconstructed_value.extend_from_slice(&chunk_bytes);
+                }
+                if reconstructed_value.len() as u64 != *total_size {
+                    log::warn!("Reconstructed value size mismatch. Expected {}, got {}.", total_size, reconstructed_value.len());
+                }
+                Ok(Some(reconstructed_value))
+            }
+        }
+    }
+
     pub async fn from_root_hash(
         root_hash: Hash,
         store: Arc<S>,
@@ -75,6 +104,14 @@ impl<S: ChunkStore> ProllyTree<S> {
         };
         // Delegate to core_logic
         self.recursive_get_impl(current_root_hash, key.clone()).await
+    }
+
+    pub fn get_sync(&self, key: &Key) -> Result<Option<Value>> {
+        let current_root_hash = match self.root_hash {
+            Some(h) => h,
+            None => return Ok(None),
+        };
+        core_logic::get_recursive_sync_impl(self, current_root_hash, key)
     }
     
     // Wrapper for core_logic's implementation

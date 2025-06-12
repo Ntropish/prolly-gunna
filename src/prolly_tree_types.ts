@@ -66,6 +66,8 @@ export interface DiffEntry {
 
 /** The resolved value of the `get` method: the value (Uint8Array) or null if not found. */
 export type GetFnReturn = Uint8Array | null;
+/** The synchronous return value of the `getSync` method. Throws on error. */
+export type GetSyncFnReturn = Uint8Array | null;
 /** The `insert` method resolves to void (or undefined in JS) upon completion. */
 export type InsertFnReturn = void;
 /** The `insertBatch` method resolves to void (or undefined in JS) upon completion. */

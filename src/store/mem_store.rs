@@ -6,7 +6,7 @@ use std::sync::Arc; // Using Arc for shared ownership with RwLock
 use tokio::sync::RwLock;
 
 use crate::common::Hash;
-use crate::error::Result;
+use crate::error::{Result, ProllyError};
 use crate::chunk::hash_bytes; // Assuming hash_bytes will be available from crate::chunk
 use super::chunk_store::ChunkStore;
 
@@ -84,6 +84,13 @@ impl ChunkStore for InMemoryStore {
         // Collect all keys (hashes) from the HashMap
         let hashes_vec = guard.data.keys().cloned().collect();
         Ok(hashes_vec)
+    }
+
+    fn get_sync(&self, hash: &Hash) -> Result<Option<Vec<u8>>> {
+        let guard = self.inner.try_read().map_err(|_| {
+            ProllyError::StorageError("Failed to acquire synchronous read lock on store. An async write operation is likely in progress.".to_string())
+        })?;
+        Ok(guard.data.get(hash).cloned())
     }
 }
 
