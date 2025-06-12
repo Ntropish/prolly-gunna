@@ -222,7 +222,7 @@ function __wbg_adapter_50(arg0, arg1, arg2) {
     wasm.closure149_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_148(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_150(arg0, arg1, arg2, arg3) {
     wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
 }
 
@@ -358,6 +358,18 @@ class PTree {
         return ret;
     }
     /**
+     * @param {Uint8Array} key_js
+     * @param {Uint8Array} value_js
+     * @returns {InsertSyncFnReturn}
+     */
+    insertSync(key_js, value_js) {
+        const ret = wasm.ptree_insertSync(this.__wbg_ptr, key_js, value_js);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @param {any} items_js_val
      * @returns {Promise<InsertBatchFnReturn>}
      */
@@ -372,6 +384,17 @@ class PTree {
     delete(key_js) {
         const ret = wasm.ptree_delete(this.__wbg_ptr, key_js);
         return ret;
+    }
+    /**
+     * @param {Uint8Array} key_js
+     * @returns {DeleteSyncFnReturn}
+     */
+    deleteSync(key_js) {
+        const ret = wasm.ptree_deleteSync(this.__wbg_ptr, key_js);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * @param {Uint8Array | null} [hash_js]
@@ -700,7 +723,7 @@ module.exports.__wbg_new_23a2665fac83c611 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wbg_adapter_148(a, state0.b, arg0, arg1);
+                return __wbg_adapter_150(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -887,7 +910,7 @@ module.exports.__wbindgen_cb_drop = function(arg0) {
     return ret;
 };
 
-module.exports.__wbindgen_closure_wrapper587 = function(arg0, arg1, arg2) {
+module.exports.__wbindgen_closure_wrapper603 = function(arg0, arg1, arg2) {
     const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
     return ret;
 };

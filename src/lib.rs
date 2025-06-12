@@ -66,8 +66,12 @@ extern "C" {
     pub type PromiseGetFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<InsertFnReturn>")]
     pub type PromiseInsertFnReturn;
+    #[wasm_bindgen(typescript_type = "InsertSyncFnReturn")] 
+    pub type InsertSyncFnReturn;                          
     #[wasm_bindgen(typescript_type = "Promise<InsertBatchFnReturn>")]
     pub type PromiseInsertBatchFnReturn;
+    #[wasm_bindgen(typescript_type = "DeleteSyncFnReturn")] 
+    pub type DeleteSyncFnReturn;  
     #[wasm_bindgen(typescript_type = "Promise<DeleteFnReturn>")]
     pub type PromiseDeleteFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<CheckoutFnReturn>")]
@@ -291,6 +295,18 @@ impl PTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
+    #[wasm_bindgen(js_name = insertSync)]
+    pub fn insert_sync(&mut self, key_js: &JsUint8Array, value_js: &JsUint8Array) -> Result<InsertSyncFnReturn, JsValue> {
+        let key: Key = key_js.to_vec();
+        let value: Value = value_js.to_vec();
+        let mut tree_guard = self.inner.try_lock().map_err(|_| {
+            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
+                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
+            ))
+        })?;
+        tree_guard.insert_sync(key, value).map(|_| JsValue::UNDEFINED.into()).map_err(prolly_error_to_jsvalue)
+    }
+
     #[wasm_bindgen(js_name = insertBatch)]
     pub fn insert_batch(&self, items_js_val: &JsValue) -> PromiseInsertBatchFnReturn {
         let items_array = match items_js_val.dyn_ref::<JsArray>() {
@@ -338,6 +354,17 @@ impl PTree {
                 .map(JsValue::from_bool).map_err(prolly_error_to_jsvalue)
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = deleteSync)]
+    pub fn delete_sync(&mut self, key_js: &JsUint8Array) -> Result<DeleteSyncFnReturn, JsValue> {
+        let key: Key = key_js.to_vec();
+        let mut tree_guard = self.inner.try_lock().map_err(|_| {
+            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
+                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
+            ))
+        })?;
+        tree_guard.delete_sync(&key).map(|b| JsValue::from_bool(b).into()).map_err(prolly_error_to_jsvalue)
     }
 
     #[wasm_bindgen]

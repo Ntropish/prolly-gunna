@@ -72,10 +72,14 @@ export type GetFnReturn = Uint8Array | null;
 export type GetSyncFnReturn = Uint8Array | null;
 /** The `insert` method resolves to void (or undefined in JS) upon completion. */
 export type InsertFnReturn = void;
+/** The synchronous return value of the `insertSync` method. Throws on error. */
+export type InsertSyncFnReturn = void;
 /** The `insertBatch` method resolves to void (or undefined in JS) upon completion. */
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
+/** The synchronous return value of the `deleteSync` method. Throws on error. */
+export type DeleteSyncFnReturn = boolean;
 /** The `checkout` method resolves to void (or undefined in JS) upon completion. */
 export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
@@ -183,8 +187,10 @@ export class PTree {
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   getSync(key_js: Uint8Array): GetSyncFnReturn;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
+  insertSync(key_js: Uint8Array, value_js: Uint8Array): InsertSyncFnReturn;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
+  deleteSync(key_js: Uint8Array): DeleteSyncFnReturn;
   checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
@@ -218,6 +224,16 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly __wbg_scanpage_free: (a: number, b: number) => void;
+  readonly scanpage_items: (a: number) => any;
+  readonly scanpage_has_next_page: (a: number) => number;
+  readonly scanpage_has_previous_page: (a: number) => number;
+  readonly scanpage_next_page_cursor: (a: number) => any;
+  readonly scanpage_previous_page_cursor: (a: number) => any;
+  readonly __wbg_hierarchyscanpage_free: (a: number, b: number) => void;
+  readonly hierarchyscanpage_items: (a: number) => any;
+  readonly hierarchyscanpage_has_next_page: (a: number) => number;
+  readonly hierarchyscanpage_next_page_cursor_token: (a: number) => [number, number];
   readonly __wbg_ptree_free: (a: number, b: number) => void;
   readonly __wbg_ptreecursor_free: (a: number, b: number) => void;
   readonly ptreecursor_next: (a: number) => any;
@@ -226,8 +242,10 @@ export interface InitOutput {
   readonly ptree_get: (a: number, b: any) => any;
   readonly ptree_getSync: (a: number, b: any) => [number, number, number];
   readonly ptree_insert: (a: number, b: any, c: any) => any;
+  readonly ptree_insertSync: (a: number, b: any, c: any) => [number, number, number];
   readonly ptree_insertBatch: (a: number, b: any) => any;
   readonly ptree_delete: (a: number, b: any) => any;
+  readonly ptree_deleteSync: (a: number, b: any) => [number, number, number];
   readonly ptree_checkout: (a: number, b: number) => any;
   readonly ptree_getRootHash: (a: number) => any;
   readonly ptree_exportChunks: (a: number) => any;
@@ -241,16 +259,6 @@ export interface InitOutput {
   readonly ptree_hierarchyScan: (a: number, b: number) => any;
   readonly ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;
   readonly ptree_loadTreeFromFileBytes: (a: any) => any;
-  readonly __wbg_scanpage_free: (a: number, b: number) => void;
-  readonly scanpage_items: (a: number) => any;
-  readonly scanpage_has_next_page: (a: number) => number;
-  readonly scanpage_has_previous_page: (a: number) => number;
-  readonly scanpage_next_page_cursor: (a: number) => any;
-  readonly scanpage_previous_page_cursor: (a: number) => any;
-  readonly __wbg_hierarchyscanpage_free: (a: number, b: number) => void;
-  readonly hierarchyscanpage_items: (a: number) => any;
-  readonly hierarchyscanpage_has_next_page: (a: number) => number;
-  readonly hierarchyscanpage_next_page_cursor_token: (a: number) => [number, number];
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;

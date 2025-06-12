@@ -48,6 +48,18 @@ pub trait ChunkStore: Send + Sync + std::fmt::Debug + 'static {
         ))
     }
 
+    fn put_sync(&self, _bytes: Vec<u8>) -> Result<Hash> {
+        Err(ProllyError::InvalidOperation(
+            "This store does not support synchronous put.".to_string(),
+        ))
+    }
+
+    fn delete_batch_sync(&self, _hashes: &[Hash]) -> Result<()> {
+        Err(ProllyError::InvalidOperation(
+            "This store does not support synchronous delete_batch.".to_string(),
+        ))
+    }
+
     // Future considerations:
     // async fn delete(&self, hash: &Hash) -> Result<()>; // Old single delete, now covered by delete_batch
     // async fn flush(&self) -> Result<()>; // If the store buffers writes

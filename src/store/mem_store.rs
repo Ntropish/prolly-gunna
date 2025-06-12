@@ -92,6 +92,28 @@ impl ChunkStore for InMemoryStore {
         })?;
         Ok(guard.data.get(hash).cloned())
     }
+
+    fn put_sync(&self, bytes: Vec<u8>) -> Result<Hash> {
+        let hash = hash_bytes(&bytes);
+        let mut guard = self.inner.try_write().map_err(|_| {
+            ProllyError::StorageError("Failed to acquire synchronous write lock on store. An async operation is likely in progress.".to_string())
+        })?;
+        guard.data.entry(hash).or_insert_with(|| bytes);
+        Ok(hash)
+    }
+
+    fn delete_batch_sync(&self, hashes: &[Hash]) -> Result<()> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+        let mut guard = self.inner.try_write().map_err(|_| {
+            ProllyError::StorageError("Failed to acquire synchronous write lock on store for delete. An async operation is likely in progress.".to_string())
+        })?;
+        for hash in hashes {
+            guard.data.remove(hash);
+        }
+        Ok(())
+    }
 }
 
 // Wasm-specific helpers (like your original `from_js_map`) would go here if needed.

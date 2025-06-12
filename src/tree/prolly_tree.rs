@@ -124,6 +124,46 @@ impl<S: ChunkStore> ProllyTree<S> {
         Box::pin(core_logic::get_recursive_impl(self, node_hash, key))
     }
 
+    // (Add these new methods to the ProllyTree impl block in the existing file)
+    pub fn insert_sync(&mut self, key: Key, value: Value) -> Result<()> {
+        let value_repr = io::prepare_value_repr_sync(&self.store, &self.config, value)?;
+        let current_root_hash = match self.root_hash {
+            Some(h) => h,
+            None => {
+                let new_leaf_node = Node::Leaf {
+                    level: 0,
+                    entries: vec![LeafEntry { key, value: value_repr }],
+                };
+                let (_boundary_key, new_root_hash_val) = io::store_node_and_get_key_hash_pair_sync(&self.store, &new_leaf_node)?;
+                self.root_hash = Some(new_root_hash_val);
+                return Ok(());
+            }
+        };
+        let root_node = self.load_node_sync(&current_root_hash)?;
+        let update_result = core_logic::insert_recursive_sync_impl(self, current_root_hash, key, value_repr, root_node.level())?;
+        self.root_hash = Some(update_result.new_hash);
+        if let Some((split_boundary_key, new_sibling_hash, new_sibling_item_count)) = update_result.split_info {
+            let old_root_as_left_child_boundary = update_result.new_boundary_key;
+            let old_root_as_left_child_item_count = update_result.new_item_count;
+            let new_root_children = vec![
+                InternalEntry {
+                    boundary_key: old_root_as_left_child_boundary,
+                    child_hash: self.root_hash.unwrap(),
+                    num_items_subtree: old_root_as_left_child_item_count,
+                },
+                InternalEntry {
+                    boundary_key: split_boundary_key,
+                    child_hash: new_sibling_hash,
+                    num_items_subtree: new_sibling_item_count,
+                },
+            ];
+            let new_root_level = root_node.level() + 1;
+            let new_root_node_obj = Node::new_internal(new_root_children, new_root_level)?;
+            let (_final_boundary, final_root_hash) = io::store_node_and_get_key_hash_pair_sync(&self.store, &new_root_node_obj)?;
+            self.root_hash = Some(final_root_hash);
+        }
+        Ok(())
+    }
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Result<()> {
         let value_repr = io::prepare_value_repr(&self.store, &self.config, value).await?;
@@ -192,6 +232,34 @@ impl<S: ChunkStore> ProllyTree<S> {
             self.insert(key, value).await?;
         }
         Ok(())
+    }
+
+    pub fn delete_sync(&mut self, key: &Key) -> Result<bool> {
+        let current_root_hash = match self.root_hash {
+            Some(h) => h,
+            None => return Ok(false),
+        };
+        let root_node = self.load_node_sync(&current_root_hash)?;
+        let root_level = root_node.level();
+        let mut key_was_actually_deleted = false;
+        let result = core_logic::delete_recursive_sync_impl(self, current_root_hash, key, root_level, &mut key_was_actually_deleted)?;
+        match result {
+            DeleteRecursionResult::NotFound { .. } => Ok(key_was_actually_deleted),
+            DeleteRecursionResult::Updated(update_info) => {
+                self.root_hash = Some(update_info.new_hash);
+                let potentially_new_root_node = self.load_node_sync(&self.root_hash.unwrap())?;
+                if let Node::Internal { ref children, .. } = potentially_new_root_node {
+                    if children.len() == 1 {
+                        self.root_hash = Some(children[0].child_hash);
+                    }
+                }
+                Ok(key_was_actually_deleted)
+            }
+            DeleteRecursionResult::Merged => {
+                self.root_hash = None;
+                Ok(key_was_actually_deleted)
+            }
+        }
     }
 
     pub async fn delete(&mut self, key: &Key) -> Result<bool> {

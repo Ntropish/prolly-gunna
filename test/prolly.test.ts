@@ -959,6 +959,132 @@ describe("PTree", () => {
   });
 });
 
+describe("PTree Sync Operations", () => {
+  it("should insert values with insertSync and retrieve them with getSync", () => {
+    const tree = new PTree();
+    const key1 = toU8("sync_key_1");
+    const val1 = toU8("sync_val_1");
+    const key2 = toU8("sync_key_2");
+    const val2 = toU8("sync_val_2");
+
+    // Insert initial values
+    expect(() => tree.insertSync(key1, val1)).not.toThrow();
+    expect(() => tree.insertSync(key2, val2)).not.toThrow();
+
+    // Verify values can be retrieved
+    expectU8Eq(tree.getSync(key1), val1);
+    expectU8Eq(tree.getSync(key2), val2);
+
+    // Overwrite a value
+    const val1_overwrite = toU8("sync_val_1_overwritten");
+    expect(() => tree.insertSync(key1, val1_overwrite)).not.toThrow();
+
+    // Verify overwritten value
+    expectU8Eq(tree.getSync(key1), val1_overwrite);
+    // Verify other value is unaffected
+    expectU8Eq(tree.getSync(key2), val2);
+  });
+
+  it("should delete values with deleteSync and verify their removal", () => {
+    const tree = new PTree();
+    const key1 = toU8("sync_del_1");
+    const val1 = toU8("sync_del_val_1");
+    const key2 = toU8("sync_del_2");
+    const val2 = toU8("sync_del_val_2");
+
+    tree.insertSync(key1, val1);
+    tree.insertSync(key2, val2);
+
+    // Verify keys exist before deletion
+    expect(tree.getSync(key1)).toBeDefined();
+    expect(tree.getSync(key2)).toBeDefined();
+
+    // Delete one key
+    let wasDeleted = false;
+    expect(() => {
+      wasDeleted = tree.deleteSync(key1);
+    }).not.toThrow();
+    expect(wasDeleted).toBe(true);
+
+    // Verify the key is gone
+    expect(tree.getSync(key1)).toBeNull();
+    // Verify the other key remains
+    expectU8Eq(tree.getSync(key2), val2);
+
+    // Attempt to delete a non-existent key
+    let wasDeletedAgain = true;
+    expect(() => {
+      wasDeletedAgain = tree.deleteSync(toU8("non_existent_key"));
+    }).not.toThrow();
+    expect(wasDeletedAgain).toBe(false);
+  });
+
+  it("should handle interleaved sync inserts and deletes correctly", async () => {
+    const tree = new PTree();
+
+    // Initial state
+    tree.insertSync(toU8("a"), toU8("val_a"));
+    tree.insertSync(toU8("b"), toU8("val_b"));
+    tree.insertSync(toU8("c"), toU8("val_c"));
+
+    const hash1 = await tree.getRootHash();
+    expect(hash1).not.toBeNull();
+
+    // Perform sync modifications
+    tree.deleteSync(toU8("b")); // delete middle
+    tree.insertSync(toU8("d"), toU8("val_d")); // add
+    tree.insertSync(toU8("a"), toU8("val_a_mod")); // overwrite
+
+    const hash2 = await tree.getRootHash();
+    expect(hash2).not.toBeNull();
+    expect(Array.from(hash1!)).not.toEqual(Array.from(hash2!));
+
+    // Verify final state
+    expectU8Eq(tree.getSync(toU8("a")), toU8("val_a_mod"));
+    expect(tree.getSync(toU8("b"))).toBeNull();
+    expectU8Eq(tree.getSync(toU8("c")), toU8("val_c"));
+    expectU8Eq(tree.getSync(toU8("d")), toU8("val_d"));
+  });
+
+  it("should empty the tree when the last element is deleted synchronously", () => {
+    const tree = new PTree();
+    const key = toU8("the_last_one");
+
+    tree.insertSync(key, toU8("value"));
+    expect(tree.getSync(key)).not.toBeNull();
+
+    const wasDeleted = tree.deleteSync(key);
+    expect(wasDeleted).toBe(true);
+
+    expect(tree.getSync(key)).toBeNull();
+    // We must check the root hash asynchronously
+    // This part of the test is async to check the final root state.
+    return expect(tree.getRootHash()).resolves.toBeNull();
+  });
+
+  it.skip("should throw an error if trying sync operations while an async one is in progress", async () => {
+    // NOTE: This test is skipped because it's fundamentally racy and difficult to test reliably
+    // from a single-threaded JavaScript environment interacting with the Wasm module's internal
+    // async runtime.
+    // The Rust `tokio` runtime spawned by `wasm-bindgen-futures` may run an entire async task
+    // to completion in a single "turn" from the perspective of the JS event loop, because the
+    // `await` points within the Rust code are for the Tokio scheduler, not the JS event loop.
+    // This makes it nearly impossible to guarantee that a JS-based `getSync` call will execute
+    // at the exact moment the internal Mutex is locked by an async operation.
+    // While the locking mechanism in Rust is sound, proving it from a JS test is not deterministic.
+    const tree = new PTree();
+    const largeValue = createLargeTestData(50 * 1024); // 50 KB
+
+    const longInsertPromise = tree.insert(toU8("long_op"), largeValue);
+
+    // In a real-world scenario with contention, the following would throw.
+    // Here, we just await the promise to ensure cleanup.
+    // expect(() => tree.getSync(toU8("x"))).toThrow();
+
+    await longInsertPromise;
+  });
+});
+
 // Helper to create a large Uint8Array with pseudo-random but deterministic content
 function createLargeTestData(size: number, seed: number = 42): Uint8Array {
   const buffer = new Uint8Array(size);

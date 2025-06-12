@@ -72,10 +72,14 @@ export type GetFnReturn = Uint8Array | null;
 export type GetSyncFnReturn = Uint8Array | null;
 /** The `insert` method resolves to void (or undefined in JS) upon completion. */
 export type InsertFnReturn = void;
+/** The synchronous return value of the `insertSync` method. Throws on error. */
+export type InsertSyncFnReturn = void;
 /** The `insertBatch` method resolves to void (or undefined in JS) upon completion. */
 export type InsertBatchFnReturn = void;
 /** The `delete` method resolves to a boolean indicating if the key was found and deleted. */
 export type DeleteFnReturn = boolean;
+/** The synchronous return value of the `deleteSync` method. Throws on error. */
+export type DeleteSyncFnReturn = boolean;
 /** The `checkout` method resolves to void (or undefined in JS) upon completion. */
 export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
@@ -183,8 +187,10 @@ export class PTree {
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   getSync(key_js: Uint8Array): GetSyncFnReturn;
   insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
+  insertSync(key_js: Uint8Array, value_js: Uint8Array): InsertSyncFnReturn;
   insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
   delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
+  deleteSync(key_js: Uint8Array): DeleteSyncFnReturn;
   checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
   getRootHash(): Promise<GetRootHashFnReturn>;
   exportChunks(): Promise<ExportChunksFnReturn>;
