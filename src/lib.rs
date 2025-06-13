@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use js_sys::{Promise, Uint8Array as JsUint8Array, Map as JsMap, Object, Reflect, Array as JsArray};
+use js_sys::{Promise, Uint8Array as JsUint8Array, Map as JsMap, Object, Reflect, Array as JsArray, Function as JsFunction};
 
 use std::collections::HashMap;
 
@@ -78,6 +78,8 @@ extern "C" {
     pub type PromiseCheckoutFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<GetRootHashFnReturn>")]
     pub type PromiseGetRootHashFnReturn;
+    #[wasm_bindgen(typescript_type = "GetRootHashSyncFnReturn")]
+    pub type GetRootHashSyncFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<ExportChunksFnReturn>")]
     pub type PromiseExportChunksFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<DiffRootsFnReturn>")]
@@ -397,6 +399,18 @@ impl PTree {
             Ok(tree_clone.lock().await.get_root_hash().map_or(JsValue::NULL, |h| JsValue::from(JsUint8Array::from(&h[..]))))
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = "getRootHashSync")]
+    pub fn get_root_hash_sync(&self) -> Result<GetRootHashSyncFnReturn, JsValue> {
+        let tree_guard = self.inner.try_lock().map_err(|_| {
+            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
+                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
+            ))
+        })?;
+        
+        let hash_opt = (*tree_guard).get_root_hash();
+        Ok(hash_opt.map_or(JsValue::NULL, |h| JsValue::from(JsUint8Array::from(&h[..]))).into())
     }
 
     #[wasm_bindgen(js_name = "exportChunks")]

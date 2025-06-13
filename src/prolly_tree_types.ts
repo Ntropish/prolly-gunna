@@ -63,7 +63,8 @@ export interface DiffEntry {
 }
 
 // --- Resolved Promise Return Type Aliases ---
-
+/** A callback function to be executed when the PTree state changes. */
+export type OnChangeFn = (event: ChangeEvent) => void;
 /** The resolved value of the `get` method: the value (Uint8Array) or null if not found. */
 export type GetFnReturn = Uint8Array | null;
 /** The synchronous return value of the `getSync` method. Throws on error. */
@@ -82,6 +83,8 @@ export type DeleteSyncFnReturn = boolean;
 export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
+/** The synchronous return value of the `getRootHashSync` method. */
+export type GetRootHashSyncFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */
 export type ExportChunksFnReturn = Map<Uint8Array, Uint8Array>;
 /** The `diffRoots` method resolves to an array of DiffEntry objects. */
@@ -100,6 +103,18 @@ export type HierarchyScanFnReturn = Promise<HierarchyScanPageResult>;
 export type ExportTreeToFileFnReturn = Promise<Uint8Array>;
 /** The `loadTreeFromFileBytes` method resolves to a PTree instance. */
 export type LoadTreeFromFileBytesFnReturn = Promise<PTree>;
+
+/**
+ * The event payload dispatched on the 'change' event.
+ */
+export interface ChangeEvent {
+  /** The root hash of the tree *before* the operation. */
+  oldRootHash: Uint8Array | null;
+  /** The root hash of the tree *after* the operation. */
+  newRootHash: Uint8Array | null;
+  /** The type of operation that triggered the change. */
+  type: "insert" | "delete" | "insertBatch" | "checkout";
+}
 
 /**
  * The resolved value of the `PTreeCursor.next()` method.

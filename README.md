@@ -115,6 +115,9 @@ console.log(u8ToString(syncValue)); // "works!"
 // Delete a value synchronously
 const wasDeletedSync = tree.deleteSync(toU8("sync"));
 console.log("Was 'sync' deleted?", wasDeletedSync); // true
+
+// Get the root hash
+const rootHash = tree.getRootHashSync();
 ```
 
 ### Versioning and Diffing
@@ -263,6 +266,36 @@ const hashV3 = await tree.getRootHash();
 const collectedCount = await tree.triggerGc([hashV1, hashV3]);
 
 console.log(`Garbage collected ${collectedCount} chunks.`);
+```
+
+### 👂 Listening for Changes
+
+You can subscribe to a `change` event to be notified whenever the tree's root hash is modified by an operation like `insert`, `delete`, or `checkout`.
+
+The event is fired _after_ the operation completes and only if the root hash has actually changed.
+
+```typescript
+import { PTree, ChangeEvent } from "prolly-gunna";
+
+const tree = new PTree();
+
+const listener = (details: ChangeEvent) => {
+  console.log("Tree has changed!");
+  console.log("Operation Type:", details.type);
+  console.log("Old Root Hash:", details.oldRootHash);
+  console.log("New Root Hash:", details.newRootHash);
+  // The `target` property is a reference to the PTree instance
+  console.log("Tree instance:", details.target);
+};
+
+// Subscribe to the event
+tree.on("change", listener);
+
+// This will trigger the event
+await tree.insert(toU8("hello"), toU8("world"));
+
+// Unsubscribe from the event
+tree.off("change", listener);
 ```
 
 ## 📖 API Reference
