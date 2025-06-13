@@ -1,6 +1,6 @@
 import { describe, it, beforeAll } from "vitest";
 import { PTree } from "../dist/node/prolly_rust.js";
-import { toU8 } from "./lib/utils";
+import { toU8 } from "./lib/utils.js";
 
 // Helper to generate deterministic key-value pairs
 function generateData(

@@ -65,7 +65,8 @@ export interface DiffEntry {
 }
 
 // --- Resolved Promise Return Type Aliases ---
-
+/** A callback function to be executed when the PTree state changes. */
+export type OnChangeFn = (event: ChangeEvent) => void;
 /** The resolved value of the `get` method: the value (Uint8Array) or null if not found. */
 export type GetFnReturn = Uint8Array | null;
 /** The synchronous return value of the `getSync` method. Throws on error. */
@@ -84,6 +85,8 @@ export type DeleteSyncFnReturn = boolean;
 export type CheckoutFnReturn = void;
 /** The `getRootHash` method resolves to the root hash (Uint8Array) or null if the tree is empty. */
 export type GetRootHashFnReturn = Uint8Array | null;
+/** The synchronous return value of the `getRootHashSync` method. */
+export type GetRootHashSyncFnReturn = Uint8Array | null;
 /** The `exportChunks` method resolves to a Map of chunk hashes to chunk data. */
 export type ExportChunksFnReturn = Map<Uint8Array, Uint8Array>;
 /** The `diffRoots` method resolves to an array of DiffEntry objects. */
@@ -102,6 +105,18 @@ export type HierarchyScanFnReturn = Promise<HierarchyScanPageResult>;
 export type ExportTreeToFileFnReturn = Promise<Uint8Array>;
 /** The `loadTreeFromFileBytes` method resolves to a PTree instance. */
 export type LoadTreeFromFileBytesFnReturn = Promise<PTree>;
+
+/**
+ * The event payload dispatched on the 'change' event.
+ */
+export interface ChangeEvent {
+  /** The root hash of the tree *before* the operation. */
+  oldRootHash: Uint8Array | null;
+  /** The root hash of the tree *after* the operation. */
+  newRootHash: Uint8Array | null;
+  /** The type of operation that triggered the change. */
+  type: "insert" | "delete" | "insertBatch" | "checkout";
+}
 
 /**
  * The resolved value of the `PTreeCursor.next()` method.
@@ -183,16 +198,19 @@ export class HierarchyScanPage {
 export class PTree {
   free(): void;
   constructor(options?: TreeConfigOptions | null);
+  onChange(listener: Function): void;
+  offChange(listener_to_remove: Function): void;
   static load(root_hash_js: Uint8Array | null | undefined, chunks_js: Map<any, any>, tree_config_options?: TreeConfigOptions | null): Promise<any>;
   get(key_js: Uint8Array): Promise<GetFnReturn>;
   getSync(key_js: Uint8Array): GetSyncFnReturn;
-  insert(key_js: Uint8Array, value_js: Uint8Array): Promise<InsertFnReturn>;
-  insertSync(key_js: Uint8Array, value_js: Uint8Array): InsertSyncFnReturn;
-  insertBatch(items_js_val: any): Promise<InsertBatchFnReturn>;
-  delete(key_js: Uint8Array): Promise<DeleteFnReturn>;
-  deleteSync(key_js: Uint8Array): DeleteSyncFnReturn;
-  checkout(hash_js?: Uint8Array | null): Promise<CheckoutFnReturn>;
+  insert(key_js: Uint8Array, value_js: Uint8Array): Promise<any>;
+  insertSync(key: Uint8Array, value: Uint8Array): void;
+  insertBatch(items_js_val: any): Promise<any>;
+  delete(key: Uint8Array): Promise<any>;
+  deleteSync(key: Uint8Array): boolean;
+  checkout(hash?: Uint8Array | null): Promise<any>;
   getRootHash(): Promise<GetRootHashFnReturn>;
+  getRootHashSync(): GetRootHashSyncFnReturn;
   exportChunks(): Promise<ExportChunksFnReturn>;
   cursorStart(): Promise<any>;
   seek(key_js: Uint8Array): Promise<any>;
@@ -203,7 +221,7 @@ export class PTree {
   countAllItems(): Promise<CountAllItemsFnReturn>;
   hierarchyScan(options?: HierarchyScanOptions | null): Promise<HierarchyScanFnReturn>;
   saveTreeToFileBytes(description?: string | null): Promise<ExportTreeToFileFnReturn>;
-  static loadTreeFromFileBytes(file_bytes_js: Uint8Array): Promise<LoadTreeFromFileBytesFnReturn>;
+  static loadTreeFromFileBytes(file_bytes_js: Uint8Array): Promise<any>;
 }
 export class PTreeCursor {
   private constructor();

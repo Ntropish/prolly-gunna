@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // (1) ESM build target so import.meta is legal
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // (2) emit JS
+    "noEmit": false,
+    "rootDir": "scripts",
+    "outDir": "scripts"
+  },
+  "include": ["scripts/**/*"]
+}

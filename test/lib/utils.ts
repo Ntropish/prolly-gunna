@@ -94,13 +94,13 @@ export function expectKeyValueArrayEq(
   );
   for (let i = 0; i < actual.length; i++) {
     expectU8Eq(
-      actual[i].key,
-      expected[i].key,
+      actual?.[i]?.key,
+      expected?.[i]?.key,
       `Key mismatch at index ${i}${context}`
     );
     expectU8Eq(
-      actual[i].value,
-      expected[i].value,
+      actual?.[i]?.value,
+      expected?.[i]?.value,
       `Value mismatch at index ${i}${context}`
     );
   }

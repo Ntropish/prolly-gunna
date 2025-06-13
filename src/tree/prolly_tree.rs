@@ -125,7 +125,8 @@ impl<S: ChunkStore> ProllyTree<S> {
     }
 
     // (Add these new methods to the ProllyTree impl block in the existing file)
-    pub fn insert_sync(&mut self, key: Key, value: Value) -> Result<()> {
+    pub fn insert_sync(&mut self, key: Key, value: Value) -> Result<bool> {
+        let old_root_hash = self.root_hash;
         let value_repr = io::prepare_value_repr_sync(&self.store, &self.config, value)?;
         let current_root_hash = match self.root_hash {
             Some(h) => h,
@@ -136,7 +137,7 @@ impl<S: ChunkStore> ProllyTree<S> {
                 };
                 let (_boundary_key, new_root_hash_val) = io::store_node_and_get_key_hash_pair_sync(&self.store, &new_leaf_node)?;
                 self.root_hash = Some(new_root_hash_val);
-                return Ok(());
+                return Ok(true);
             }
         };
         let root_node = self.load_node_sync(&current_root_hash)?;
@@ -162,10 +163,11 @@ impl<S: ChunkStore> ProllyTree<S> {
             let (_final_boundary, final_root_hash) = io::store_node_and_get_key_hash_pair_sync(&self.store, &new_root_node_obj)?;
             self.root_hash = Some(final_root_hash);
         }
-        Ok(())
+        Ok(old_root_hash != self.root_hash)
     }
 
-    pub async fn insert(&mut self, key: Key, value: Value) -> Result<()> {
+    pub async fn insert(&mut self, key: Key, value: Value) -> Result<bool> {
+        let old_root_hash = self.root_hash;
         let value_repr = io::prepare_value_repr(&self.store, &self.config, value).await?;
 
         let current_root_hash = match self.root_hash {
@@ -179,7 +181,7 @@ impl<S: ChunkStore> ProllyTree<S> {
                 // Use io module to store it
                 let (_boundary_key, new_root_hash_val) = io::store_node_and_get_key_hash_pair(&self.store, &new_leaf_node).await?;
                 self.root_hash = Some(new_root_hash_val);
-                return Ok(());
+                return Ok(true);
             }
         };
         
@@ -211,7 +213,7 @@ impl<S: ChunkStore> ProllyTree<S> {
             let (_final_boundary, final_root_hash) = io::store_node_and_get_key_hash_pair(&self.store, &new_root_node_obj).await?;
             self.root_hash = Some(final_root_hash);
         }
-        Ok(())
+        Ok(old_root_hash != self.root_hash)
     }
 
     // Wrapper for core_logic's implementation
@@ -227,11 +229,12 @@ impl<S: ChunkStore> ProllyTree<S> {
     }
 
 
-    pub async fn insert_batch(&mut self, items: Vec<(Key, Value)>) -> Result<()> {
+    pub async fn insert_batch(&mut self, items: Vec<(Key, Value)>) -> Result<bool> {
+        let old_root_hash = self.root_hash;
         for (key, value) in items {
             self.insert(key, value).await?;
         }
-        Ok(())
+        Ok(old_root_hash != self.root_hash)
     }
 
     pub fn delete_sync(&mut self, key: &Key) -> Result<bool> {
@@ -307,7 +310,8 @@ impl<S: ChunkStore> ProllyTree<S> {
         Box::pin(core_logic::delete_recursive_impl(self, node_hash, key, level, key_actually_deleted_flag))
     }
 
-    pub async fn checkout(&mut self, hash: Option<Hash>) -> Result<()> {
+    pub async fn checkout(&mut self, hash: Option<Hash>) -> Result<bool> {
+        let old_root_hash = self.root_hash;
         if let Some(h) = hash {
             // Validate the hash points to a valid node before updating the root
             self.load_node(&h).await?;
@@ -316,7 +320,7 @@ impl<S: ChunkStore> ProllyTree<S> {
             // If None is passed, checkout to an empty tree
             self.root_hash = None;
         }
-        Ok(())
+        Ok(old_root_hash != self.root_hash)
     }
 
     pub async fn count_all_items(&self) -> Result<u64> {

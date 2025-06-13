@@ -11,6 +11,7 @@ Prolly Trees are content-addressed, persistent data structures that offer powerf
 ## ✨ Features
 
 - High-Performance Key-Value Store: Fast in-memory operations for get, insert, delete, and insertBatch.
+- **Synchronous API**: Provides `getSync`, `insertSync`, and `deleteSync` for use cases where an async context is unavailable.
 - Persistent & Immutable: Every operation returns a new, updated version of the tree, leaving the original unchanged. This makes versioning and snapshots trivial.
 - Content-Addressed Storage: Tree nodes are identified by the hash of their content, enabling natural data deduplication and integrity checks.
 - Efficient Diffing: Quickly compute the differences (additions, deletions, modifications) between any two versions of the tree.
@@ -57,7 +58,7 @@ const toU8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 const u8ToString = (arr: Uint8Array): string => new TextDecoder().decode(arr);
 ```
 
-### Basic Operations
+### Basic Operations (Async)
 
 ```TypeScript
 // Create a new tree with default settings
@@ -95,6 +96,28 @@ const batch = [
     [toU8("batch2"), toU8("val2")]
 ];
 await tree.insertBatch(batch);
+```
+
+### Synchronous Operations
+
+For use cases where an `async` context is not available or desired. These methods will throw an error if an async operation is currently in progress.
+
+```typescript
+const tree = new PTree();
+
+// Insert a value synchronously
+tree.insertSync(toU8("sync"), toU8("works!"));
+
+// Get a value synchronously
+const syncValue = tree.getSync(toU8("sync"));
+console.log(u8ToString(syncValue)); // "works!"
+
+// Delete a value synchronously
+const wasDeletedSync = tree.deleteSync(toU8("sync"));
+console.log("Was 'sync' deleted?", wasDeletedSync); // true
+
+// Get the root hash
+const rootHash = tree.getRootHashSync();
 ```
 
 ### Versioning and Diffing
@@ -245,6 +268,36 @@ const collectedCount = await tree.triggerGc([hashV1, hashV3]);
 console.log(`Garbage collected ${collectedCount} chunks.`);
 ```
 
+### 👂 Listening for Changes
+
+You can subscribe to a `change` event to be notified whenever the tree's root hash is modified by an operation like `insert`, `delete`, or `checkout`.
+
+The event is fired _after_ the operation completes and only if the root hash has actually changed.
+
+```typescript
+import { PTree, ChangeEvent } from "prolly-gunna";
+
+const tree = new PTree();
+
+const listener = (details: ChangeEvent) => {
+  console.log("Tree has changed!");
+  console.log("Operation Type:", details.type);
+  console.log("Old Root Hash:", details.oldRootHash);
+  console.log("New Root Hash:", details.newRootHash);
+  // The `target` property is a reference to the PTree instance
+  console.log("Tree instance:", details.target);
+};
+
+// Subscribe to the event
+tree.on("change", listener);
+
+// This will trigger the event
+await tree.insert(toU8("hello"), toU8("world"));
+
+// Unsubscribe from the event
+tree.off("change", listener);
+```
+
 ## 📖 API Reference
 
 `PTree`
@@ -274,6 +327,10 @@ Loads a tree from its root hash and a map of its constituent data chunks.
 
 Retrieves the value associated with a key. Returns null if the key is not found.
 
+`getSync(key: Uint8Array): Uint8Array | null`
+
+Synchronously retrieves the value for a key. Returns `null` if not found. Throws if an async operation holds the tree lock.
+
 `insert(key: Uint8Array, value: Uint8Array): Promise<void>`
 
 Inserts or updates a key-value pair.
@@ -282,9 +339,17 @@ Inserts or updates a key-value pair.
 
 Inserts an array of key-value pairs efficiently.
 
+`insertSync(key: Uint8Array, value: Uint8Array): void`
+
+Synchronously inserts or updates a key-value pair. Throws if an async operation holds the tree lock.
+
 `delete(key: Uint8Array): Promise<boolean>`
 
 Deletes a key-value pair. Returns true if the key was found and deleted.
+
+`deleteSync(key: Uint8Array): boolean`
+
+Synchronously deletes a key-value pair. Returns `true` if the key was found and deleted. Throws if an async operation holds the tree lock.
 
 `checkout(hash: Uint8Array | null): Promise<void>`
 

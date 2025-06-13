@@ -215,11 +215,11 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 function __wbg_adapter_50(arg0, arg1, arg2) {
-    wasm.closure149_externref_shim(arg0, arg1, arg2);
+    wasm.closure154_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_150(arg0, arg1, arg2, arg3) {
-    wasm.closure194_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_159(arg0, arg1, arg2, arg3) {
+    wasm.closure199_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 const HierarchyScanPageFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -315,6 +315,18 @@ export class PTree {
         return this;
     }
     /**
+     * @param {Function} listener
+     */
+    onChange(listener) {
+        wasm.ptree_onChange(this.__wbg_ptr, listener);
+    }
+    /**
+     * @param {Function} listener_to_remove
+     */
+    offChange(listener_to_remove) {
+        wasm.ptree_offChange(this.__wbg_ptr, listener_to_remove);
+    }
+    /**
      * @param {Uint8Array | null | undefined} root_hash_js
      * @param {Map<any, any>} chunks_js
      * @param {TreeConfigOptions | null} [tree_config_options]
@@ -346,57 +358,55 @@ export class PTree {
     /**
      * @param {Uint8Array} key_js
      * @param {Uint8Array} value_js
-     * @returns {Promise<InsertFnReturn>}
+     * @returns {Promise<any>}
      */
     insert(key_js, value_js) {
         const ret = wasm.ptree_insert(this.__wbg_ptr, key_js, value_js);
         return ret;
     }
     /**
-     * @param {Uint8Array} key_js
-     * @param {Uint8Array} value_js
-     * @returns {InsertSyncFnReturn}
+     * @param {Uint8Array} key
+     * @param {Uint8Array} value
      */
-    insertSync(key_js, value_js) {
-        const ret = wasm.ptree_insertSync(this.__wbg_ptr, key_js, value_js);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
+    insertSync(key, value) {
+        const ret = wasm.ptree_insertSync(this.__wbg_ptr, key, value);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
         }
-        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * @param {any} items_js_val
-     * @returns {Promise<InsertBatchFnReturn>}
+     * @returns {Promise<any>}
      */
     insertBatch(items_js_val) {
         const ret = wasm.ptree_insertBatch(this.__wbg_ptr, items_js_val);
         return ret;
     }
     /**
-     * @param {Uint8Array} key_js
-     * @returns {Promise<DeleteFnReturn>}
+     * @param {Uint8Array} key
+     * @returns {Promise<any>}
      */
-    delete(key_js) {
-        const ret = wasm.ptree_delete(this.__wbg_ptr, key_js);
+    delete(key) {
+        const ret = wasm.ptree_delete(this.__wbg_ptr, key);
         return ret;
     }
     /**
-     * @param {Uint8Array} key_js
-     * @returns {DeleteSyncFnReturn}
+     * @param {Uint8Array} key
+     * @returns {boolean}
      */
-    deleteSync(key_js) {
-        const ret = wasm.ptree_deleteSync(this.__wbg_ptr, key_js);
+    deleteSync(key) {
+        const ret = wasm.ptree_deleteSync(this.__wbg_ptr, key);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
-        return takeFromExternrefTable0(ret[0]);
+        return ret[0] !== 0;
     }
     /**
-     * @param {Uint8Array | null} [hash_js]
-     * @returns {Promise<CheckoutFnReturn>}
+     * @param {Uint8Array | null} [hash]
+     * @returns {Promise<any>}
      */
-    checkout(hash_js) {
-        const ret = wasm.ptree_checkout(this.__wbg_ptr, isLikeNone(hash_js) ? 0 : addToExternrefTable0(hash_js));
+    checkout(hash) {
+        const ret = wasm.ptree_checkout(this.__wbg_ptr, isLikeNone(hash) ? 0 : addToExternrefTable0(hash));
         return ret;
     }
     /**
@@ -405,6 +415,16 @@ export class PTree {
     getRootHash() {
         const ret = wasm.ptree_getRootHash(this.__wbg_ptr);
         return ret;
+    }
+    /**
+     * @returns {GetRootHashSyncFnReturn}
+     */
+    getRootHashSync() {
+        const ret = wasm.ptree_getRootHashSync(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * @returns {Promise<ExportChunksFnReturn>}
@@ -487,7 +507,7 @@ export class PTree {
     }
     /**
      * @param {Uint8Array} file_bytes_js
-     * @returns {Promise<LoadTreeFromFileBytesFnReturn>}
+     * @returns {Promise<any>}
      */
     static loadTreeFromFileBytes(file_bytes_js) {
         const ret = wasm.ptree_loadTreeFromFileBytes(file_bytes_js);
@@ -632,6 +652,10 @@ function __wbg_get_imports() {
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
     };
+    imports.wbg.__wbg_apply_36be6a55257c99bf = function() { return handleError(function (arg0, arg1, arg2) {
+        const ret = arg0.apply(arg1, arg2);
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_buffer_609cc3eee51ed158 = function(arg0) {
         const ret = arg0.buffer;
         return ret;
@@ -706,6 +730,10 @@ function __wbg_get_imports() {
         const ret = Number.isSafeInteger(arg0);
         return ret;
     };
+    imports.wbg.__wbg_is_c7481c65e7e5df9e = function(arg0, arg1) {
+        const ret = Object.is(arg0, arg1);
+        return ret;
+    };
     imports.wbg.__wbg_iterator_9a24c88df860dc65 = function() {
         const ret = Symbol.iterator;
         return ret;
@@ -729,7 +757,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_150(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_159(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -776,6 +804,10 @@ function __wbg_get_imports() {
         const ret = arg0.next();
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_of_2eaf5a02d443ef03 = function(arg0) {
+        const ret = Array.of(arg0);
+        return ret;
+    };
     imports.wbg.__wbg_ptree_new = function(arg0) {
         const ret = PTree.__wrap(arg0);
         return ret;
@@ -881,8 +913,8 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper603 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 150, __wbg_adapter_50);
+    imports.wbg.__wbindgen_closure_wrapper615 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 155, __wbg_adapter_50);
         return ret;
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {

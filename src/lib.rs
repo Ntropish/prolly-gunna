@@ -3,6 +3,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use std::sync::Arc;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use js_sys::{Promise, Uint8Array as JsUint8Array, Map as JsMap, Object, Reflect, Array as JsArray, Function as JsFunction};
 
@@ -114,6 +115,7 @@ extern "C" {
 #[derive(Clone)]
 pub struct PTree {
     inner: Arc<tokio::sync::Mutex<ProllyTree<InMemoryStore>>>,
+    listeners: Arc<RefCell<Vec<JsFunction>>>,
 }
 
 #[wasm_bindgen(js_name = "PTreeCursor")]
@@ -185,9 +187,43 @@ impl PTree {
         let tree = ProllyTree::new(store, config);
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(tree)),
+            listeners: Arc::new(RefCell::new(Vec::new())), 
         })
     }
 
+    #[wasm_bindgen(js_name = "onChange")]
+    pub fn on_change(&self, listener: JsFunction) {
+        self.listeners.borrow_mut().push(listener);
+    }
+
+    #[wasm_bindgen(js_name = "offChange")]
+    pub fn off_change(&self, listener_to_remove: &JsFunction) {
+        self.listeners.borrow_mut().retain(|l| l != listener_to_remove);
+    }
+
+    // Fires the change event to all registered listeners.
+    fn emit_change(
+        listeners: &Arc<RefCell<Vec<JsFunction>>>,
+        old_hash: Option<Hash>,
+        new_hash: Option<Hash>,
+        op_type: &str,
+    ) {
+        let listeners = listeners.borrow();
+        if listeners.is_empty() { return; }
+        let details = Object::new();
+        let old_hash_js = old_hash.map_or(JsValue::NULL, |h| JsValue::from(JsUint8Array::from(&h[..])));
+        let new_hash_js = new_hash.map_or(JsValue::NULL, |h| JsValue::from(JsUint8Array::from(&h[..])));
+        js_sys::Reflect::set(&details, &"oldRootHash".into(), &old_hash_js).unwrap();
+        js_sys::Reflect::set(&details, &"newRootHash".into(), &new_hash_js).unwrap();
+        js_sys::Reflect::set(&details, &"type".into(), &op_type.into()).unwrap();
+        let this = JsValue::UNDEFINED;
+        let args = JsArray::of1(&details.into());
+        for listener in listeners.iter() {
+            if let Err(e) = listener.apply(&this, &args) {
+                gloo_console::error!(&format!("Error calling change listener: {:?}", e));
+            }
+        }
+    }
 
     #[wasm_bindgen(js_name = "load")]
     pub fn load(
@@ -249,7 +285,7 @@ impl PTree {
 
             tree_result
                 .map(|tree| {
-                    PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
+                    PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)), listeners: Arc::new(RefCell::new(Vec::new())) }.into()
                 })
                 .map_err(prolly_error_to_jsvalue)
         };
@@ -285,111 +321,167 @@ impl PTree {
     }
 
     #[wasm_bindgen]
-    pub fn insert(&self, key_js: &JsUint8Array, value_js: &JsUint8Array) -> PromiseInsertFnReturn {
+    pub fn insert(&self, key_js: &JsUint8Array, value_js: &JsUint8Array) -> Promise {
+        let tree_clone = self.inner.clone();
+        let listeners_clone = self.listeners.clone();
         let key: Key = key_js.to_vec();
         let value: Value = value_js.to_vec();
-        let tree_clone = Arc::clone(&self.inner);
+    
         let future = async move {
-            tree_clone.lock().await.insert(key, value).await
-                .map(|_| JsValue::UNDEFINED)
-                .map_err(prolly_error_to_jsvalue)
+            let mut tree = tree_clone.lock().await;
+            let old_hash = tree.get_root_hash();
+    
+            if tree.insert(key, value).await.map_err(prolly_error_to_jsvalue)? {
+                let new_hash = tree.get_root_hash();
+                Self::emit_change(&listeners_clone, old_hash, new_hash, "insert");
+            }
+            Ok(JsValue::UNDEFINED)
         };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+        wasm_bindgen_futures::future_to_promise(future).into()
     }
 
-    #[wasm_bindgen(js_name = insertSync)]
-    pub fn insert_sync(&mut self, key_js: &JsUint8Array, value_js: &JsUint8Array) -> Result<InsertSyncFnReturn, JsValue> {
-        let key: Key = key_js.to_vec();
-        let value: Value = value_js.to_vec();
-        let mut tree_guard = self.inner.try_lock().map_err(|_| {
-            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
-                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
-            ))
-        })?;
-        tree_guard.insert_sync(key, value).map(|_| JsValue::UNDEFINED.into()).map_err(prolly_error_to_jsvalue)
+    #[wasm_bindgen(js_name = "insertSync")]
+    pub fn insert_sync(&self, key: JsUint8Array, value: JsUint8Array) -> Result<(), JsValue> {
+        let mut tree = self
+            .inner
+            .try_lock()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let old_hash = tree.get_root_hash();
+        if tree
+            .insert_sync(key.to_vec(), value.to_vec())
+            .map_err(prolly_error_to_jsvalue)?
+        {
+            let new_hash = tree.get_root_hash();
+            // Fixed: Pass `self.listeners` directly. It does not need to be a static call.
+            Self::emit_change(&self.listeners, old_hash, new_hash, "insert");
+        }
+        Ok(())
     }
 
-    #[wasm_bindgen(js_name = insertBatch)]
-    pub fn insert_batch(&self, items_js_val: &JsValue) -> PromiseInsertBatchFnReturn {
+    #[wasm_bindgen(js_name = "insertBatch")]
+    pub fn insert_batch(&self, items_js_val: &JsValue) -> Promise {
         let items_array = match items_js_val.dyn_ref::<JsArray>() {
             Some(arr) => arr,
-            None => return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str("insertBatch expects an array."))).into(),
+            None => {
+                return Promise::reject(&JsValue::from_str(
+                    "insertBatch expects an array.",
+                ));
+            }
         };
+
         let mut items_rust: Vec<(Key, Value)> = Vec::with_capacity(items_array.length() as usize);
         for i in 0..items_array.length() {
             let pair_val = items_array.get(i);
             let pair_array = match pair_val.dyn_ref::<JsArray>() {
                 Some(pa) if pa.length() == 2 => pa,
-                Some(_) => return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str(&format!("Item at index {} in batch is not a [key, value] pair.", i)))).into(),
-                None => return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str(&format!("Item at index {} in batch is not an array.", i)))).into(),
+                Some(_) => {
+                    return Promise::reject(&JsValue::from_str(&format!(
+                        "Item at index {} in batch is not a [key, value] pair.",
+                        i
+                    )));
+                }
+                None => {
+                    return Promise::reject(&JsValue::from_str(&format!(
+                        "Item at index {} in batch is not an array.",
+                        i
+                    )));
+                }
             };
 
-            // Check key and value types, using the combined error message expected by the test.
             let key_js_val = pair_array.get(0);
             let value_js_val = pair_array.get(1);
 
-            if !key_js_val.is_instance_of::<JsUint8Array>() || !value_js_val.is_instance_of::<JsUint8Array>() {
-                return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str(&format!("Item at index {} in batch has non-Uint8Array key or value.",i)))).into();
+            if !key_js_val.is_instance_of::<JsUint8Array>()
+                || !value_js_val.is_instance_of::<JsUint8Array>()
+            {
+                return Promise::reject(&JsValue::from_str(&format!(
+                    "Item at index {} in batch has non-Uint8Array key or value.",
+                    i
+                )));
             }
-
-            // At this point, we know they are JsUint8Array, so we can safely cast.
+            
             let key_u8 = key_js_val.dyn_into::<JsUint8Array>().unwrap_throw().to_vec();
             let value_u8 = value_js_val.dyn_into::<JsUint8Array>().unwrap_throw().to_vec();
-            
+
             items_rust.push((key_u8, value_u8));
         }
 
-        let tree_clone = Arc::clone(&self.inner);
-        let future = async move {
-            tree_clone.lock().await.insert_batch(items_rust).await
-                .map(|_| JsValue::UNDEFINED).map_err(prolly_error_to_jsvalue)
-        };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
-    }
-    
-    #[wasm_bindgen]
-    pub fn delete(&self, key_js: &JsUint8Array) -> PromiseDeleteFnReturn {
-        let key: Key = key_js.to_vec();
-        let tree_clone = Arc::clone(&self.inner);
-        let future = async move {
-            tree_clone.lock().await.delete(&key).await 
-                .map(JsValue::from_bool).map_err(prolly_error_to_jsvalue)
-        };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
-    }
 
-    #[wasm_bindgen(js_name = deleteSync)]
-    pub fn delete_sync(&mut self, key_js: &JsUint8Array) -> Result<DeleteSyncFnReturn, JsValue> {
-        let key: Key = key_js.to_vec();
-        let mut tree_guard = self.inner.try_lock().map_err(|_| {
-            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
-                "Cannot acquire synchronous lock on tree. An async operation is likely in progress.".to_string(),
-            ))
-        })?;
-        tree_guard.delete_sync(&key).map(|b| JsValue::from_bool(b).into()).map_err(prolly_error_to_jsvalue)
-    }
+        // --- Integration with Event System ---
+        let tree_clone = self.inner.clone();
+        let listeners_clone = self.listeners.clone();
 
-    #[wasm_bindgen]
-    pub fn checkout(&self, hash_js: Option<JsUint8Array>) -> PromiseCheckoutFnReturn {
-        let hash_opt: Option<Hash> = match hash_js {
-            Some(h_js) => {
-                if h_js.length() != 32 {
-                    return wasm_bindgen::JsValue::from(Promise::reject(&JsValue::from_str("Invalid hash length. Must be 32 bytes."))).into();
-                }
-                let mut h: Hash = [0; 32];
-                h_js.copy_to(&mut h);
-                Some(h)
+        let future = async move {
+            let mut tree = tree_clone.lock().await;
+            let old_hash = tree.get_root_hash();
+
+            if tree
+                .insert_batch(items_rust)
+                .await
+                .map_err(prolly_error_to_jsvalue)?
+            {
+                let new_hash = tree.get_root_hash();
+                Self::emit_change(&listeners_clone, old_hash, new_hash, "insertBatch");
             }
-            None => None,
-        };
 
-        let tree_clone = Arc::clone(&self.inner);
-        let future = async move {
-            tree_clone.lock().await.checkout(hash_opt).await
-                .map(|_| JsValue::UNDEFINED)
-                .map_err(prolly_error_to_jsvalue)
+            Ok(JsValue::UNDEFINED)
         };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+        
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
+    #[wasm_bindgen]
+    pub fn delete(&self, key: JsUint8Array) -> Promise {
+        let tree_clone = self.inner.clone();
+        let listeners_clone = self.listeners.clone();
+        let key_bytes: Key = key.to_vec();
+
+        let future = async move {
+            let mut tree = tree_clone.lock().await;
+            let old_hash = tree.get_root_hash();
+
+            let deleted = tree.delete(&key_bytes).await.map_err(prolly_error_to_jsvalue)?;
+            if deleted {
+                let new_hash = tree.get_root_hash();
+                Self::emit_change(&listeners_clone, old_hash, new_hash, "delete");
+            }
+            Ok(JsValue::from(deleted))
+        };
+        wasm_bindgen_futures::future_to_promise(future)
+    }
+
+    #[wasm_bindgen(js_name = "deleteSync")]
+    pub fn delete_sync(&self, key: JsUint8Array) -> Result<bool, JsValue> {
+        let mut tree = self
+            .inner
+            .try_lock()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let old_hash = tree.get_root_hash();
+        let deleted = tree
+            .delete_sync(&key.to_vec())
+            .map_err(prolly_error_to_jsvalue)?;
+        if deleted {
+            let new_hash = tree.get_root_hash();
+            Self::emit_change(&self.listeners, old_hash, new_hash, "delete");
+        }
+        Ok(deleted)
+    }
+
+    #[wasm_bindgen]
+    pub fn checkout(&self, hash: Option<JsUint8Array>) -> Promise {
+        let tree_clone = self.inner.clone();
+        let listeners_clone = self.listeners.clone(); // Clone Arc
+        let hash_bytes: Option<Hash> = hash.map(|h| h.to_vec().try_into().unwrap());
+        let future = async move {
+            let mut tree = tree_clone.lock().await;
+            let old_hash = tree.get_root_hash();
+            if tree.checkout(hash_bytes).await.map_err(prolly_error_to_jsvalue)? {
+                let new_hash = tree.get_root_hash();
+                Self::emit_change(&listeners_clone, old_hash, new_hash, "checkout");
+            }
+            Ok(JsValue::UNDEFINED)
+        };
+        wasm_bindgen_futures::future_to_promise(future)
     }
 
     #[wasm_bindgen(js_name = "getRootHash")]
@@ -602,56 +694,36 @@ impl PTree {
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
     }
 
-    #[wasm_bindgen(js_name = loadTreeFromFileBytes)]
-    pub fn load_tree_from_file_bytes(file_bytes_js: &JsUint8Array) -> PromiseLoadTreeFromFileBytesFnReturn {
-        let file_bytes: Vec<u8> = file_bytes_js.to_vec();
-
+    #[wasm_bindgen(js_name = "loadTreeFromFileBytes")]
+    pub fn load_tree_from_file_bytes(file_bytes_js: JsUint8Array) -> Promise {
+        let file_bytes = file_bytes_js.to_vec();
         let future = async move {
-            match read_prly_tree_v2(&file_bytes) {
-                Ok((root_hash_opt, tree_config, chunks_map_rust, _description)) => {
-                    let store_instance = InMemoryStore::new();
-                    let store_arc = Arc::new(store_instance);
+            let (root_hash_opt, tree_config, chunks, _description) =
+                read_prly_tree_v2(&file_bytes).map_err(prolly_error_to_jsvalue)?;
 
-                    for (expected_hash, data) in chunks_map_rust { // Renamed 'hash' to 'expected_hash' for clarity
-                        // Line 551 where 'put' signature was mismatched
-                        // The 'put' method in ChunkStore takes only 'data' and returns the calculated hash.
-                        // See: src/store/chunk_store.rs
-                        // And its implementation in: src/store/mem_store.rs
-                        let actual_hash_result = ChunkStore::put(&*store_arc, data).await;
-                        
-                        match actual_hash_result {
-                            Ok(actual_hash) => {
-                                if actual_hash != expected_hash {
-                                    // Hashes don't match, data integrity issue or mismatch in hash functions
-                                    return Err(prolly_error_to_jsvalue(ProllyError::InternalError(
-                                        format!("Hash mismatch for chunk during file load. Expected: {:?}, Calculated by store: {:?}", expected_hash, actual_hash)
-                                    )));
-                                }
-                                // If hashes match, chunk is now in store, proceed.
-                            }
-                            Err(e) => {
-                                // Error during .put() operation
-                                return Err(prolly_error_to_jsvalue(e));
-                            }
-                        }
-                    }
-
-                    let tree_result = if let Some(root_hash) = root_hash_opt {
-                        ProllyTree::from_root_hash(root_hash, Arc::clone(&store_arc), tree_config).await
-                    } else {
-                        Ok(ProllyTree::new(Arc::clone(&store_arc), tree_config))
-                    };
-
-                    tree_result
-                        .map(|tree| {
-                            PTree { inner: Arc::new(tokio::sync::Mutex::new(tree)) }.into()
-                        })
-                        .map_err(prolly_error_to_jsvalue)
-                }
-                Err(e) => Err(prolly_error_to_jsvalue(e)),
+            let store = InMemoryStore::new();
+            for (_hash, chunk) in chunks {
+                // Fixed: Use the correct `put` signature.
+                // This is inefficient as it re-hashes, but it's correct per the trait definition.
+                store.put(chunk).await.map_err(prolly_error_to_jsvalue)?;
             }
+            let store_arc = Arc::new(store);
+
+            let tree = if let Some(root_hash) = root_hash_opt {
+                ProllyTree::from_root_hash(root_hash, store_arc, tree_config)
+                    .await
+                    .map_err(prolly_error_to_jsvalue)?
+            } else {
+                ProllyTree::new(store_arc, tree_config)
+            };
+            
+            Ok(PTree {
+                inner: Arc::new(tokio::sync::Mutex::new(tree)),
+                listeners: Arc::new(RefCell::new(Vec::new())),
+            }
+            .into())
         };
-        wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+        wasm_bindgen_futures::future_to_promise(future)
     }
 
 }

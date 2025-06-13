@@ -40,13 +40,13 @@ function expectKeyValueArrayEq(
   );
   for (let i = 0; i < actual.length; i++) {
     expectU8Eq(
-      actual[i].key,
-      expected[i].key,
+      actual?.[i]?.key,
+      expected?.[i]?.key,
       `Key mismatch at index ${i}${context}`
     );
     expectU8Eq(
-      actual[i].value,
-      expected[i].value,
+      actual?.[i]?.value,
+      expected?.[i]?.value,
       `Value mismatch at index ${i}${context}`
     );
   }
@@ -67,7 +67,7 @@ function createTestItems(
   // Ensure test data is sorted by key for predictable slicing and comparison
   items.sort((a, b) => {
     for (let i = 0; i < Math.min(a.key.length, b.key.length); i++) {
-      if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
+      if (a.key[i] !== b.key[i]) return a.key?.[i] ?? 0 - (b.key?.[i] ?? 0);
     }
     return a.key.length - b.key.length;
   });
@@ -279,7 +279,7 @@ describe("PTree Scanning (scanItems)", () => {
     // Corrected: nextPageCursor for Page 1 points to the start of Page 2
     if (currentPage.hasNextPage && testDataAll.length > pageSize) {
       expect(currentPage.nextPageCursor, "Page 1 nextPageCursor").toEqual(
-        testDataAll[pageSize].key
+        testDataAll[pageSize]?.key
       ); // Expects "item_003"
     } else {
       expect(
@@ -297,7 +297,7 @@ describe("PTree Scanning (scanItems)", () => {
       expect(
         currentPage.previousPageCursor,
         "Page 1 previousPageCursor"
-      ).toEqual(testDataAll[0].key); // Expects "item_000"
+      ).toEqual(testDataAll[0]?.key); // Expects "item_000"
     }
 
     // --- Page 2 ---
@@ -328,7 +328,7 @@ describe("PTree Scanning (scanItems)", () => {
     // previousPageCursor for Page 2 should be the first item of Page 2, which is testDataAll[pageSize + 1]
     if (currentPage.hasPreviousPage && currentPage.items.length > 0) {
       expect(currentPage.previousPageCursor).toEqual(
-        testDataAll[pageSize + 1].key
+        testDataAll[pageSize + 1]?.key
       );
     }
 
@@ -338,7 +338,7 @@ describe("PTree Scanning (scanItems)", () => {
       testDataAll.length > pageSize + 1 + pageSize
     ) {
       expect(currentPage.nextPageCursor).toEqual(
-        testDataAll[pageSize + 1 + pageSize].key
+        testDataAll[pageSize + 1 + pageSize]?.key
       );
     } else {
       // Adjust expectation if it's the last page
@@ -352,7 +352,7 @@ describe("PTree Scanning (scanItems)", () => {
       testDataAll.length > pageSize + 1 + pageSize
     ) {
       expect(currentPage.nextPageCursor, "Page 2 nextPageCursor").toEqual(
-        testDataAll[pageSize + 1 + pageSize].key
+        testDataAll[pageSize + 1 + pageSize]?.key
       ); // Expects "item_007"
     } else {
       expect(

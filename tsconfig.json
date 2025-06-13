@@ -9,6 +9,8 @@
     "moduleDetection": "force",
     "isolatedModules": true,
 
+    "checkJs": true,
+
     /* Strictness */
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -20,5 +22,7 @@
 
     /* Output */
     "noEmit": true // Or specify an outDir like "outDir": "dist"
-  }
+  },
+  "exclude": ["node_modules", "src", "dist"],
+  "include": ["scripts/**/*", "test/**/*"]
 }

@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { PTree, PTreeCursor } from "../dist/node/prolly_rust.js";
-import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils";
+import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils.js";
 
 describe("PTree", () => {
   it("should allow creating, inserting, and getting values", async () => {
@@ -1328,10 +1328,14 @@ describe("PTreeCursor", () => {
       }
     }
 
-    expectKeyArrayEq(collectedKeys, expectedKeys, "Keys not in order");
     expectKeyArrayEq(
-      collectedValues,
-      expectedValues,
+      collectedKeys as unknown as Uint8Array[],
+      expectedKeys as unknown as Uint8Array[],
+      "Keys not in order"
+    );
+    expectKeyArrayEq(
+      collectedValues as unknown as Uint8Array[],
+      expectedValues as unknown as Uint8Array[],
       "Values not matching keys"
     );
   });
@@ -1374,13 +1378,13 @@ describe("PTreeCursor", () => {
       if (!collectedItems[i] || !expectedItems[i]) continue;
 
       expectU8Eq(
-        collectedItems[i].k,
-        expectedItems[i].k,
+        collectedItems[i]?.k,
+        expectedItems[i]?.k,
         `Key mismatch at index ${i}`
       );
       expectU8Eq(
-        collectedItems[i].v,
-        expectedItems[i].v,
+        collectedItems[i]?.v,
+        expectedItems[i]?.v,
         `Value mismatch at index ${i}`
       );
     }
@@ -1661,3 +1665,136 @@ describe("PTree Diff", () => {
     expectDiffsToMatch(diffs, expected, "CDC diff");
   });
 }); // End Diff describe block
+
+describe("PTree Events (onChange)", () => {
+  it("should fire a 'change' event on insert with the correct payload", async () => {
+    const tree = new PTree();
+    const listener = vi.fn();
+
+    const oldRootHash = await tree.getRootHash(); // null
+    tree.onChange(listener);
+    await tree.insert(toU8("a"), toU8("1"));
+    const newRootHash = await tree.getRootHash();
+
+    // Check that the listener was called exactly once
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Check the payload of the event
+    const eventDetails = listener.mock.calls[0][0];
+    expect(eventDetails.type).toBe("insert");
+    expectU8Eq(eventDetails.oldRootHash, oldRootHash);
+    expectU8Eq(eventDetails.newRootHash, newRootHash);
+  });
+
+  it("should fire events for all types of successful mutations", async () => {
+    const tree = new PTree();
+    const listener = vi.fn();
+    tree.onChange(listener);
+
+    // 1. Insert
+    await tree.insert(toU8("a"), toU8("1"));
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "insert" })
+    );
+    const hash1 = await tree.getRootHash();
+
+    // 2. Batch Insert
+    await tree.insertBatch([[toU8("b"), toU8("2")]]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "insertBatch" })
+    );
+
+    // 3. Delete
+    await tree.delete(toU8("a"));
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "delete" })
+    );
+
+    // 4. Checkout
+    await tree.checkout(hash1);
+    expect(listener).toHaveBeenCalledTimes(4);
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "checkout" })
+    );
+  });
+
+  it("should NOT fire a 'change' event if the root hash does not change", async () => {
+    const tree = new PTree();
+    await tree.insert(toU8("a"), toU8("1"));
+
+    const listener = vi.fn();
+    tree.onChange(listener);
+
+    // Deleting a non-existent key should not change the hash
+    const deleted = await tree.delete(toU8("non-existent"));
+    expect(deleted).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
+
+    // Checking out to the same hash should not fire an event
+    const currentHash = await tree.getRootHash();
+    await tree.checkout(currentHash);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("should allow unsubscribing from 'change' events with offChange", async () => {
+    const tree = new PTree();
+    const listener = vi.fn();
+
+    tree.onChange(listener);
+    await tree.insert(toU8("a"), toU8("1"));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Unsubscribe
+    tree.offChange(listener);
+
+    // This mutation should NOT trigger the listener
+    await tree.insert(toU8("b"), toU8("2"));
+    expect(listener).toHaveBeenCalledTimes(1); // Still 1
+  });
+
+  it("should trigger events for synchronous operations", async () => {
+    const tree = new PTree();
+    const listener = vi.fn();
+    tree.onChange(listener);
+
+    // 1. Sync Insert
+    const oldHash1 = await tree.getRootHash();
+    tree.insertSync(toU8("sync1"), toU8("val1"));
+    const newHash1 = await tree.getRootHash();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    let eventDetails = listener.mock.calls[0][0];
+    expect(eventDetails.type).toBe("insert");
+    expectU8Eq(eventDetails.oldRootHash, oldHash1);
+    expectU8Eq(eventDetails.newRootHash, newHash1);
+
+    // 2. Sync Delete
+    const oldHash2 = await tree.getRootHash();
+    tree.deleteSync(toU8("sync1"));
+    const newHash2 = await tree.getRootHash();
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    eventDetails = listener.mock.calls[1][0];
+    expect(eventDetails.type).toBe("delete");
+    expectU8Eq(eventDetails.oldRootHash, oldHash2);
+    expectU8Eq(eventDetails.newRootHash, newHash2);
+  });
+
+  it("should call multiple listeners when multiple are registered", async () => {
+    const tree = new PTree();
+    const listener1 = vi.fn();
+    const listener2 = vi.fn();
+
+    tree.onChange(listener1);
+    tree.onChange(listener2);
+
+    await tree.insert(toU8("a"), toU8("1"));
+
+    expect(listener1).toHaveBeenCalledTimes(1);
+    expect(listener2).toHaveBeenCalledTimes(1);
+    expect(listener1).toHaveBeenCalledWith(listener2.mock.calls[0][0]); // Both called with same payload
+  });
+});

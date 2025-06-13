@@ -2,6 +2,7 @@
   "name": "prolly-gunna",
   "version": "3.2.2",
   "description": "",
+  "type": "module",
   "main": "dist/bundler/prolly_rust.js",
   "types": "dist/bundler/prolly_rust.d.ts",
   "files": [
@@ -9,14 +10,15 @@
   ],
   "scripts": {
     "build": "npm run build:bundler && npm run build:web && npm run build:node && npm run postbuild",
+    "build:scripts": "tsc --project tsconfig.scripts.json",
     "build:bundler": "wasm-pack build --out-dir ./dist/bundler --release",
     "build:web": "wasm-pack build --target web --out-dir ./dist/web --release",
     "build:node": "wasm-pack build --target nodejs --out-dir ./dist/node --release",
     "postbuild": "rimraf \"dist/node/.gitignore\" && rimraf \"dist/web/.gitignore\" && rimraf \"dist/bundler/.gitignore\"",
     "test": "vitest run",
     "test:inspect": "vitest run --inspect-brk --no-file-parallelism --disable-console-intercept",
-    "benchmark": "ts-node scripts/benchmark.ts",
-    "benchmark:save": "ts-node scripts/benchmark-save.ts",
+    "benchmark": "node --experimental-wasm-modules ./scripts/benchmark.js",
+    "benchmark:save": "node --experimental-wasm-modules scripts/benchmark-save.js",
     "publish:dry-run": "npm pack --dry-run"
   },
   "devDependencies": {
@@ -29,5 +31,8 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "tsx": "^4.20.2"
+  }
 }

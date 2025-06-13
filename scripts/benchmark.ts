@@ -2,7 +2,7 @@
 
 import { Bench, Task } from "tinybench"; // Import Task for correct typing
 import ora from "ora";
-import { PTree } from "../dist/prolly_rust.js";
+import { PTree } from "../dist/node/prolly_rust.js";
 
 const toU8 = (s: string) => new TextEncoder().encode(s);
 
@@ -322,12 +322,12 @@ async function runStorageFootprintBenchmark(): Promise<string[]> {
   await tree.insertBatch(data as any);
   const chunks1 = await tree.exportChunks();
   const size1 = Array.from(chunks1.values()).reduce(
-    (acc, val) => acc + val.length,
+    (acc, val) => (acc as number) + (val as unknown as Uint8Array).length,
     0
   );
   output.push(
     `[INFO] Size of initial tree with ${count} items: ${(
-      size1 /
+      (size1 as number) /
       1024 /
       1024
     ).toFixed(2)} MB`
@@ -335,18 +335,20 @@ async function runStorageFootprintBenchmark(): Promise<string[]> {
   await tree.insert(toU8("sharing_00001"), toU8("a new value that is small"));
   const chunks2 = await tree.exportChunks();
   const size2 = Array.from(chunks2.values()).reduce(
-    (acc, val) => acc + val.length,
+    (acc, val) => (acc as number) + (val as unknown as Uint8Array).length,
     0
   );
   output.push(
-    `[INFO] Size of tree after 1 modification: ${(size2 / 1024 / 1024).toFixed(
-      2
-    )} MB`
+    `[INFO] Size of tree after 1 modification: ${(
+      (size2 as number) /
+      1024 /
+      1024
+    ).toFixed(2)} MB`
   );
-  const addedSize = size2 - size1;
+  const addedSize = (size2 as number) - (size1 as number);
   output.push(
     `[RESULT] Incremental storage cost for 1 modification: ${(
-      addedSize / 1024
+      (addedSize as number) / 1024
     ).toFixed(2)} KB`
   );
   return output;
