@@ -25,6 +25,7 @@ export const ptree_diffRoots: (a: number, b: number, c: number) => any;
 export const ptree_triggerGc: (a: number, b: any) => any;
 export const ptree_getTreeConfig: (a: number) => any;
 export const ptree_scanItems: (a: number, b: any) => any;
+export const ptree_scanItemsSync: (a: number, b: any) => [number, number, number];
 export const ptree_countAllItems: (a: number) => any;
 export const ptree_hierarchyScan: (a: number, b: number) => any;
 export const ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;

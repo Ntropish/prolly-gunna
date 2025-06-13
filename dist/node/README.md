@@ -11,6 +11,7 @@ Prolly Trees are content-addressed, persistent data structures that offer powerf
 ## ✨ Features
 
 - High-Performance Key-Value Store: Fast in-memory operations for get, insert, delete, and insertBatch.
+- **Synchronous API**: Provides `getSync`, `insertSync`, and `deleteSync` for use cases where an async context is unavailable.
 - Persistent & Immutable: Every operation returns a new, updated version of the tree, leaving the original unchanged. This makes versioning and snapshots trivial.
 - Content-Addressed Storage: Tree nodes are identified by the hash of their content, enabling natural data deduplication and integrity checks.
 - Efficient Diffing: Quickly compute the differences (additions, deletions, modifications) between any two versions of the tree.

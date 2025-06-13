@@ -97,6 +97,8 @@ export type TriggerGcFnReturn = number;
 export type GetTreeConfigFnReturn = TreeConfigOptions;
 /** The `scanItems` method resolves to a page of scanned items. */
 export type ScanItemsFnReturn = IScanPage;
+/** The `scanItemsSync` method synchronously returns a page of scanned items. */
+export type ScanItemsSyncFnReturn = IScanPage;
 /** The `countAllItems` method resolves to the total count of items in the tree. */
 export type CountAllItemsFnReturn = number;
 /** The `hierarchyScan` method resolves to a page of hierarchy scan results. */
@@ -218,6 +220,7 @@ export class PTree {
   triggerGc(live_hashes_js_val: any): Promise<TriggerGcFnReturn>;
   getTreeConfig(): Promise<GetTreeConfigFnReturn>;
   scanItems(options: ScanOptions): Promise<ScanItemsFnReturn>;
+  scanItemsSync(options: ScanOptions): ScanPage;
   countAllItems(): Promise<CountAllItemsFnReturn>;
   hierarchyScan(options?: HierarchyScanOptions | null): Promise<HierarchyScanFnReturn>;
   saveTreeToFileBytes(description?: string | null): Promise<ExportTreeToFileFnReturn>;
@@ -266,6 +269,7 @@ export interface InitOutput {
   readonly ptree_triggerGc: (a: number, b: any) => any;
   readonly ptree_getTreeConfig: (a: number) => any;
   readonly ptree_scanItems: (a: number, b: any) => any;
+  readonly ptree_scanItemsSync: (a: number, b: any) => [number, number, number];
   readonly ptree_countAllItems: (a: number) => any;
   readonly ptree_hierarchyScan: (a: number, b: number) => any;
   readonly ptree_saveTreeToFileBytes: (a: number, b: number, c: number) => any;

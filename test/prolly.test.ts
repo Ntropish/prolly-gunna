@@ -1,7 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { PTree, PTreeCursor } from "../dist/node/prolly_rust.js";
-import { expectU8Eq, formatU8Array, JsDiffEntry, toU8 } from "./lib/utils.js";
+import {
+  IScanPage,
+  PTree,
+  PTreeCursor,
+  ScanOptions,
+  ScanPage,
+} from "../dist/node/prolly_rust.js";
+import {
+  expectU8Eq,
+  formatU8Array,
+  JsDiffEntry,
+  toU8,
+  expectKeyValueArrayEq,
+} from "./lib/utils.js";
 
 describe("PTree", () => {
   it("should allow creating, inserting, and getting values", async () => {
@@ -1680,7 +1692,7 @@ describe("PTree Events (onChange)", () => {
     expect(listener).toHaveBeenCalledTimes(1);
 
     // Check the payload of the event
-    const eventDetails = listener.mock.calls[0][0];
+    const eventDetails = listener.mock.calls[0]?.[0];
     expect(eventDetails.type).toBe("insert");
     expectU8Eq(eventDetails.oldRootHash, oldRootHash);
     expectU8Eq(eventDetails.newRootHash, newRootHash);
@@ -1766,7 +1778,7 @@ describe("PTree Events (onChange)", () => {
     const newHash1 = await tree.getRootHash();
 
     expect(listener).toHaveBeenCalledTimes(1);
-    let eventDetails = listener.mock.calls[0][0];
+    let eventDetails = listener.mock.calls[0]?.[0];
     expect(eventDetails.type).toBe("insert");
     expectU8Eq(eventDetails.oldRootHash, oldHash1);
     expectU8Eq(eventDetails.newRootHash, newHash1);
@@ -1777,7 +1789,7 @@ describe("PTree Events (onChange)", () => {
     const newHash2 = await tree.getRootHash();
 
     expect(listener).toHaveBeenCalledTimes(2);
-    eventDetails = listener.mock.calls[1][0];
+    eventDetails = listener.mock.calls[1]?.[0];
     expect(eventDetails.type).toBe("delete");
     expectU8Eq(eventDetails.oldRootHash, oldHash2);
     expectU8Eq(eventDetails.newRootHash, newHash2);
@@ -1795,6 +1807,207 @@ describe("PTree Events (onChange)", () => {
 
     expect(listener1).toHaveBeenCalledTimes(1);
     expect(listener2).toHaveBeenCalledTimes(1);
-    expect(listener1).toHaveBeenCalledWith(listener2.mock.calls[0][0]); // Both called with same payload
+    expect(listener1).toHaveBeenCalledWith(listener2.mock.calls[0]?.[0]); // Both called with same payload
+  });
+});
+// +++ New Test Suite for scanItemsSync +++
+
+interface TestItem {
+  key: Uint8Array;
+  value: Uint8Array;
+}
+
+function createTestItems(
+  count: number,
+  prefix = "key",
+  valuePrefix = "val"
+): TestItem[] {
+  const items: TestItem[] = [];
+  for (let i = 0; i < count; i++) {
+    items.push({
+      key: toU8(`${prefix}_${String(i).padStart(3, "0")}`),
+      value: toU8(`${valuePrefix}_${String(i).padStart(3, "0")}`),
+    });
+  }
+  // Ensure test data is sorted by key for predictable slicing and comparison
+  items.sort((a, b) => {
+    for (let i = 0; i < Math.min(a.key.length, b.key.length); i++) {
+      if (a.key[i] !== b.key[i]) return (a.key[i] ?? 0) - (b.key[i] ?? 0);
+    }
+    return a.key.length - b.key.length;
+  });
+  return items;
+}
+
+// This interface correctly describes the shape of the object returned by `scanItemsSync`,
+// which uses `undefined` for optional cursors, aligning with Rust's `Option<T>`.
+interface WasmScanPage {
+  readonly items: [Uint8Array, Uint8Array][];
+  readonly hasNextPage: boolean;
+  readonly hasPreviousPage: boolean;
+  readonly nextPageCursor: Uint8Array | undefined;
+  readonly previousPageCursor: Uint8Array | undefined;
+}
+
+// This is the shape our tests actually want to assert against, with processed items.
+type ProcessedScanPage = Omit<WasmScanPage, "items"> & { items: TestItem[] };
+
+// Directly processes the ScanPage result from a sync call.
+// The parameter type is changed from IScanPage to the correct WasmScanPage shape.
+function processSyncScanPage(page: WasmScanPage): ProcessedScanPage {
+  const processedItems: TestItem[] = page.items.map((pair) => ({
+    key: pair[0],
+    value: pair[1],
+  }));
+  // This spread creates an object with the page's properties and then overwrites 'items'.
+  return { ...page, items: processedItems };
+}
+
+describe("PTree Synchronous Scanning (scanItemsSync)", () => {
+  let tree: PTree;
+  const testDataAll = createTestItems(25, "item", "value");
+
+  beforeEach(async () => {
+    tree = new PTree();
+    // insertBatch is async, so beforeEach must be async to set up the tree
+    const batch = testDataAll.map((item) => [item.key, item.value]);
+    await tree.insertBatch(batch as any);
+  });
+
+  it("should retrieve all items with no options (full scan)", () => {
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ limit: testDataAll.length + 5 })
+    );
+    expectKeyValueArrayEq(page.items, testDataAll, "Full sync scan mismatch");
+    expect(page.hasNextPage).toBe(false);
+    expect(page.hasPreviousPage).toBe(false);
+  });
+
+  it("should handle offset correctly", () => {
+    const offset = 3;
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ offset, limit: testDataAll.length })
+    );
+    expectKeyValueArrayEq(
+      page.items,
+      testDataAll.slice(offset),
+      "Sync offset mismatch"
+    );
+    expect(page.hasPreviousPage).toBe(true);
+    expect(page.hasNextPage).toBe(false);
+  });
+
+  it("should handle limit correctly", () => {
+    const limit = 4;
+    const page = processSyncScanPage(tree.scanItemsSync({ limit }));
+    expectKeyValueArrayEq(
+      page.items,
+      testDataAll.slice(0, limit),
+      "Sync limit mismatch"
+    );
+    expect(page.hasNextPage).toBe(true);
+    expect(page.items.length).toBe(limit);
+  });
+
+  it("should handle offset and limit combined", () => {
+    const offset = 2;
+    const limit = 5;
+    const page = processSyncScanPage(tree.scanItemsSync({ offset, limit }));
+    expectKeyValueArrayEq(
+      page.items,
+      testDataAll.slice(offset, offset + limit),
+      "Sync Offset + Limit mismatch"
+    );
+    expect(page.hasNextPage).toBe(testDataAll.length > offset + limit);
+    expect(page.hasPreviousPage).toBe(offset > 0);
+  });
+
+  it("should retrieve items by key range (inclusive start, exclusive end)", () => {
+    const options: ScanOptions = {
+      startBound: toU8("item_002"),
+      startInclusive: true,
+      endBound: toU8("item_005"),
+      endInclusive: false,
+    };
+    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const expected = testDataAll.slice(2, 5); // item_002, item_003, item_004
+    expectKeyValueArrayEq(
+      page.items,
+      expected,
+      "Sync key range [start, end) mismatch"
+    );
+    expect(page.hasNextPage).toBe(false);
+  });
+
+  it("should retrieve items by key range (inclusive start, inclusive end)", () => {
+    const options: ScanOptions = {
+      startBound: toU8("item_015"),
+      startInclusive: true,
+      endBound: toU8("item_018"),
+      endInclusive: true,
+      limit: 10,
+    };
+    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const expected = testDataAll.slice(15, 19); // item_015 to item_018
+    expectKeyValueArrayEq(
+      page.items,
+      expected,
+      "Sync key range [start, end] mismatch"
+    );
+    expect(page.hasNextPage).toBe(false);
+  });
+
+  it("should handle reverse scan", () => {
+    const limit = 3;
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ reverse: true, limit })
+    );
+    const expected = [
+      ...testDataAll.slice(testDataAll.length - limit),
+    ].reverse();
+    expectKeyValueArrayEq(page.items, expected, "Sync reverse scan mismatch");
+    expect(page.hasNextPage).toBe(true);
+    expect(page.hasPreviousPage).toBe(false);
+  });
+
+  it("should handle reverse scan with bounds", () => {
+    const options: ScanOptions = {
+      startBound: toU8("item_007"), // Upper bound
+      startInclusive: false,
+      endBound: toU8("item_003"), // Lower bound
+      endInclusive: true,
+      reverse: true,
+      limit: 10,
+    };
+    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const expectedSlice = testDataAll.slice(3, 7); // item_003 to item_006
+    const expected = [...expectedSlice].reverse();
+    expectKeyValueArrayEq(
+      page.items,
+      expected,
+      "Sync reverse scan with bounds mismatch"
+    );
+    expect(page.hasNextPage, "Reverse scan with bounds: hasNextPage").toBe(
+      false
+    );
+    expect(
+      page.hasPreviousPage,
+      "Reverse scan with bounds: hasPreviousPage"
+    ).toBe(true);
+  });
+
+  it("should return empty page for scan on empty tree", () => {
+    const emptyTree = new PTree();
+    const page = processSyncScanPage(emptyTree.scanItemsSync({}));
+    expect(page.items.length).toBe(0);
+    expect(page.hasNextPage).toBe(false);
+  });
+
+  it("should handle offset exceeding available items", () => {
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ offset: testDataAll.length + 5 })
+    );
+    expect(page.items.length).toBe(0);
+    expect(page.hasNextPage).toBe(false);
   });
 });

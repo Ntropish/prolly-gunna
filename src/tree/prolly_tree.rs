@@ -421,6 +421,46 @@ impl<S: ChunkStore> ProllyTree<S> {
         })
     }
 
+    pub fn scan_sync(&self, args: ScanArgs) -> Result<ScanPage> {
+        let mut collected_items = Vec::new();
+        let limit = args.limit.unwrap_or(usize::MAX);
+        let items_to_fetch = if limit == usize::MAX { limit } else { limit + 1 };
+        
+        let mut cursor = Cursor::new_for_scan_sync(self, &args)?;
+        let mut first_item_key = None;
+
+        if items_to_fetch > 0 {
+            for _ in 0..items_to_fetch {
+                if let Some((key, value)) = cursor.next_in_scan_sync(&args)? {
+                    if first_item_key.is_none() {
+                        first_item_key = Some(key.clone());
+                    }
+                    collected_items.push((key, value));
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let mut has_next_page = false;
+        let mut next_page_cursor = None;
+        if args.limit.is_some() && collected_items.len() > limit {
+            has_next_page = true;
+            let last_item = collected_items.pop().unwrap();
+            next_page_cursor = Some(last_item.0);
+        }
+        
+        let has_previous_page = args.offset > 0 || (args.start_bound.is_some() && args.offset == 0);
+
+        Ok(ScanPage {
+            items: collected_items,
+            has_next_page,
+            has_previous_page,
+            next_page_cursor,
+            previous_page_cursor: first_item_key,
+        })
+    }
+
     pub async fn hierarchy_scan(&self, args: HierarchyScanArgs) -> Result<HierarchyScanPage> {
         let mut cursor = HierarchyCursor::new_for_hierarchy_scan(self, args.clone()).await?; //
         

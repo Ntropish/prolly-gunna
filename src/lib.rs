@@ -52,6 +52,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "ScanOptions")]
     pub type ScanOptions;
 
+    #[wasm_bindgen(typescript_type = "ScanPage")]
+    pub type ScanPage;
+
     #[wasm_bindgen(typescript_type = "HierarchyScanOptions")]
     pub type HierarchyScanOptions; 
 
@@ -89,8 +92,12 @@ extern "C" {
     pub type PromiseTriggerGcFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<GetTreeConfigFnReturn>")]
     pub type PromiseGetTreeConfigFnReturn;
+
     #[wasm_bindgen(typescript_type = "Promise<ScanItemsFnReturn>")]
     pub type PromiseScanItemsFnReturn;
+    #[wasm_bindgen(typescript_type = "ScanItemsSyncFnReturn")]
+    pub type PromiseScanItemsSyncFnReturn;
+
     #[wasm_bindgen(typescript_type = "Promise<CountAllItemsFnReturn>")]
     pub type PromiseCountAllItemsFnReturn;
     #[wasm_bindgen(typescript_type = "Promise<CursorNextReturn>")]
@@ -629,6 +636,25 @@ impl PTree {
                 })
         };
         wasm_bindgen::JsValue::from(wasm_bindgen_futures::future_to_promise(future)).into()
+    }
+
+    #[wasm_bindgen(js_name = scanItemsSync)]
+    pub fn scan_items_sync(&self, options: ScanOptions) -> Result<crate::wasm_bridge::ScanPage, JsValue> {
+        let tree_guard = self.inner.try_lock().map_err(|_| {
+            prolly_error_to_jsvalue(ProllyError::InvalidOperation(
+                "Cannot acquire synchronous lock on tree for scan. An async operation is likely in progress.".to_string(),
+            ))
+        })?;
+
+        let core_scan_args: core_tree_types::ScanArgs = if options.is_undefined() || options.is_null() {
+            core_tree_types::ScanArgs::default()
+        } else {
+            serde_wasm_bindgen::from_value(options.into()).map_err(|e| prolly_error_to_jsvalue(ProllyError::JsBindingError(e.to_string())))?
+        };
+
+        let core_scan_page = tree_guard.scan_sync(core_scan_args).map_err(prolly_error_to_jsvalue)?;
+
+        Ok(crate::wasm_bridge::ScanPage::from(core_scan_page))
     }
 
     #[wasm_bindgen(js_name = countAllItems)]

@@ -95,6 +95,8 @@ export type TriggerGcFnReturn = number;
 export type GetTreeConfigFnReturn = TreeConfigOptions;
 /** The `scanItems` method resolves to a page of scanned items. */
 export type ScanItemsFnReturn = IScanPage;
+/** The `scanItemsSync` method synchronously returns a page of scanned items. */
+export type ScanItemsSyncFnReturn = IScanPage;
 /** The `countAllItems` method resolves to the total count of items in the tree. */
 export type CountAllItemsFnReturn = number;
 /** The `hierarchyScan` method resolves to a page of hierarchy scan results. */
