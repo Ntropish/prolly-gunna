@@ -1,0 +1,50 @@
+🚀 Preparing PTree benchmark suite...
+- [1/12] Running: 1,000 individual inserts (small values)
+✔ [1/12] Finished: 1,000 individual inserts (small values)
+- [2/12] Running: 1,000 individual inserts (large values, with CDC)
+✔ [2/12] Finished: 1,000 individual inserts (large values, with CDC)
+- [3/12] Running: 10,000 items batch insert (small values)
+✔ [3/12] Finished: 10,000 items batch insert (small values)
+- [4/12] Running: 1,000 items batch insert (large values, with CDC)
+✔ [4/12] Finished: 1,000 items batch insert (large values, with CDC)
+- [5/12] Running: 10,000 individual gets (small values)
+✔ [5/12] Finished: 10,000 individual gets (small values)
+- [6/12] Running: 1,000 individual gets (large values, with CDC)
+✔ [6/12] Finished: 1,000 individual gets (large values, with CDC)
+- [7/12] Running: 1,000 individual deletes
+✔ [7/12] Finished: 1,000 individual deletes
+- [8/12] Running: Diff with 1 modification in 5000 items
+✔ [8/12] Finished: Diff with 1 modification in 5000 items
+- [9/12] Running: Diff with 10% modifications in 5000 items
+✔ [9/12] Finished: Diff with 10% modifications in 5000 items
+- [10/12] Running: Full iteration over 10000 items
+✔ [10/12] Finished: Full iteration over 10000 items
+- [11/12] Running: Exporting 10000 items with 512-byte values
+✔ [11/12] Finished: Exporting 10000 items with 512-byte values
+- [12/12] Running: Loading 3000 items with 512-byte values
+✔ [12/12] Finished: Loading 3000 items with 512-byte values
+
+--- Performance Benchmark Results ---
+┌─────────┬─────────────────────────────────────────────────────┬────────────────────────┬────────────────────────────┬────────────────────────┬────────────────────────┬─────────┐
+│ (index) │ Task name                                           │ Latency avg (ns)       │ Latency med (ns)           │ Throughput avg (ops/s) │ Throughput med (ops/s) │ Samples │
+├─────────┼─────────────────────────────────────────────────────┼────────────────────────┼────────────────────────────┼────────────────────────┼────────────────────────┼─────────┤
+│ 0       │ '1,000 individual inserts (small values)'           │ '471642400 ± 2.43%'    │ '464755150 ± 5116000'      │ '2 ± 2.37%'            │ '2 ± 0'                │ 10      │
+│ 1       │ '1,000 individual inserts (large values, with CDC)' │ '503310380 ± 1.62%'    │ '504713250 ± 7092400'      │ '2 ± 1.63%'            │ '2 ± 0'                │ 10      │
+│ 2       │ '10,000 items batch insert (small values)'          │ '8627128720 ± 12.46%'  │ '8558635750 ± 1243232600'  │ '0 ± 12.56%'           │ '0 ± 0'                │ 10      │
+│ 3       │ '1,000 items batch insert (large values, with CDC)' │ '1452270520 ± 83.30%'  │ '923726650 ± 17927050'     │ '1 ± 21.24%'           │ '1 ± 0'                │ 10      │
+│ 4       │ '10,000 individual gets (small values)'             │ '89961333 ± 2.91%'     │ '89974200 ± 2269900'       │ '11 ± 2.99%'           │ '11 ± 0'               │ 12      │
+│ 5       │ '1,000 individual gets (large values, with CDC)'    │ '28930646 ± 3.49%'     │ '28198500 ± 1048200'       │ '35 ± 3.29%'           │ '35 ± 1'               │ 35      │
+│ 6       │ '1,000 individual deletes'                          │ '587918 ± 6.52%'       │ '478700 ± 18700'           │ '1957 ± 0.90%'         │ '2089 ± 83'            │ 1702    │
+│ 7       │ 'Diff with 1 modification in 5000 items'            │ '20266 ± 0.98%'        │ '17000 ± 300.00'           │ '56431 ± 0.15%'        │ '58824 ± 1057'         │ 49345   │
+│ 8       │ 'Diff with 10% modifications in 5000 items'         │ '997600 ± 4.23%'       │ '816900 ± 32800'           │ '1135 ± 1.28%'         │ '1224 ± 50'            │ 1003    │
+│ 9       │ 'Full iteration over 10000 items'                   │ '25425028 ± 4.20%'     │ '23740400 ± 1216900'       │ '40 ± 3.68%'           │ '42 ± 2'               │ 40      │
+│ 10      │ 'Exporting 10000 items with 512-byte values'        │ '4013212010 ± 219.11%' │ '126021150 ± 9157600'      │ '7 ± 25.79%'           │ '8 ± 1'                │ 10      │
+│ 11      │ 'Loading 3000 items with 512-byte values'           │ '10669796790 ± 43.10%' │ '14188245800 ± 1242637850' │ '21 ± 153.82%'         │ '0 ± 0'                │ 10      │
+└─────────┴─────────────────────────────────────────────────────┴────────────────────────┴────────────────────────────┴────────────────────────┴────────────────────────┴─────────┘
+- 💾 Running storage footprint benchmark...
+✔ 💾 Storage footprint benchmark complete.
+[INFO] Size of initial tree with 3000 items: 81.80 MB
+[INFO] Size of tree after 1 modification: 81.82 MB
+[RESULT] Incremental storage cost for 1 modification: 17.19 KB
+
+✅ All benchmarks complete.

@@ -443,14 +443,19 @@ impl<S: ChunkStore> ProllyTree<S> {
         }
 
         let mut has_next_page = false;
-        let mut next_page_cursor = None;
         if args.limit.is_some() && collected_items.len() > limit {
             has_next_page = true;
-            let last_item = collected_items.pop().unwrap();
-            next_page_cursor = Some(last_item.0);
+            collected_items.pop();
         }
         
-        let has_previous_page = args.offset > 0 || (args.start_bound.is_some() && args.offset == 0);
+        let next_page_cursor = if has_next_page {
+            // After popping, the new last item's key is the correct cursor.
+            collected_items.last().map(|(k, _)| k.clone())
+        } else {
+            None
+        };
+        
+        let has_previous_page = args.offset > 0 || (args.start_bound.is_some() && args.reverse);
 
         Ok(ScanPage {
             items: collected_items,

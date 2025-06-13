@@ -180,42 +180,39 @@ impl<S: ChunkStore> Cursor<S> {
     }
 
 
-    // New synchronous version of next_in_scan
-    pub(crate) fn next_in_scan_sync(&mut self, args: &ScanArgs) -> Result<Option<(Key, Value)>> {
+    pub fn next_in_scan_sync(&mut self, args: &ScanArgs) -> Result<Option<(Key, Value)>> {
         loop {
             if self.path.is_empty() { return Ok(None); }
-
-            let (_leaf_hash, current_leaf_node, _) = self.path.last().unwrap().clone();
-
-            if let Node::Leaf { ref entries, .. } = current_leaf_node {
+    
+            let current_leaf_node_cloned = self.path.last().unwrap().1.clone();
+    
+            if let Node::Leaf { ref entries, .. } = current_leaf_node_cloned {
                 let entry_opt = if !args.reverse {
                     entries.get(self.current_leaf_entry_idx)
                 } else {
                     if self.current_leaf_entry_idx == usize::MAX { None } else { entries.get(self.current_leaf_entry_idx) }
                 };
-
+    
                 if let Some(entry) = entry_opt {
                     let key_ref = &entry.key;
                     if !args.reverse {
                         if let Some(ref eb) = args.end_bound {
-                            if key_ref.cmp(eb) == Ordering::Greater || (key_ref.cmp(eb) == Ordering::Equal && !args.end_inclusive) {
-                                return Ok(None);
-                            }
+                            let cmp = key_ref.cmp(eb);
+                            if cmp == Ordering::Greater || (cmp == Ordering::Equal && !args.end_inclusive) { return Ok(None); }
                         }
                     } else {
                         if let Some(ref sb) = args.start_bound {
-                            if key_ref.cmp(sb) == Ordering::Greater || (key_ref.cmp(sb) == Ordering::Equal && !args.start_inclusive) {
-                                return Ok(None);
-                            }
+                            let cmp = key_ref.cmp(sb);
+                            if cmp == Ordering::Greater || (cmp == Ordering::Equal && !args.start_inclusive) { return Ok(None); }
                         }
                         if let Some(ref eb) = args.end_bound {
-                             if key_ref.cmp(eb) == Ordering::Less || (key_ref.cmp(eb) == Ordering::Equal && !args.end_inclusive) {
-                                return Ok(None);
-                            }
+                            let cmp = key_ref.cmp(eb);
+                            if cmp == Ordering::Less || (cmp == Ordering::Equal && !args.end_inclusive) { return Ok(None); }
                         }
                     }
-
+    
                     let value = self.load_value_repr_from_store_sync(&entry.value)?;
+    
                     if !args.reverse {
                         self.current_leaf_entry_idx += 1;
                     } else {
@@ -228,17 +225,17 @@ impl<S: ChunkStore> Cursor<S> {
                     } else {
                         Self::advance_cursor_path_to_prev_leaf_static_sync(&mut self.path, &self.store)?
                     };
-
-                    if !advanced { return Ok(None); }
                     
-                    if let Some((_, new_leaf, _)) = self.path.last() {
-                        if let Node::Leaf { entries, .. } = new_leaf {
-                             self.current_leaf_entry_idx = if !args.reverse { 0 } else { entries.len().saturating_sub(1) };
-                             if args.reverse && entries.is_empty() { self.current_leaf_entry_idx = usize::MAX; }
-                        } else { return Err(ProllyError::InternalError("Cursor path error after advancing".into())) }
-                    } else { return Ok(None) }
+                    if !advanced { return Ok(None); }
+    
+                    if let Some((_, new_leaf_node, _)) = self.path.last() {
+                        if let Node::Leaf{entries: new_entries, ..} = new_leaf_node {
+                            self.current_leaf_entry_idx = if !args.reverse { 0 } else { new_entries.len().saturating_sub(1) };
+                            if args.reverse && new_entries.is_empty() { self.current_leaf_entry_idx = usize::MAX; }
+                        } else { return Err(ProllyError::InternalError("Advanced cursor path did not end in a leaf".to_string())); }
+                    } else { return Ok(None); }
                 }
-            } else { return Err(ProllyError::InternalError("Cursor path top not a leaf".into())) }
+            } else { return Err(ProllyError::InternalError("Cursor path top was not a LeafNode during next_in_scan".to_string())); }
         }
     }
 
@@ -324,6 +321,7 @@ impl<S: ChunkStore> Cursor<S> {
         if path.is_empty() { return Ok(false); }
         loop {
             let (_popped_hash, _popped_node, popped_idx_in_parent) = path.pop().ok_or(ProllyError::InternalError("Path empty in advance sync".into()))?;
+            if path.is_empty() { return Ok(false); }
             let (_parent_hash, parent_node, _parent_idx) = path.last().ok_or(ProllyError::InternalError("Parent not found in advance sync".into()))?;
 
             if let Node::Internal { children, .. } = parent_node {
@@ -391,6 +389,7 @@ impl<S: ChunkStore> Cursor<S> {
         if path.is_empty() { return Ok(false); }
         loop {
             let (_popped_hash, _popped_node, popped_idx_in_parent) = path.pop().ok_or(ProllyError::InternalError("Path empty in advance sync".into()))?;
+            if path.is_empty() { return Ok(false); }
             if popped_idx_in_parent == usize::MAX { return Ok(false); }
             let (_parent_hash, parent_node, _parent_idx) = path.last().ok_or(ProllyError::InternalError("Parent not found in advance sync".into()))?;
 
@@ -609,16 +608,14 @@ impl<S: ChunkStore> Cursor<S> {
         Ok(Self { store, config, path, current_leaf_entry_idx })
     }
 
-
     pub(crate) fn new_for_scan_sync(
         tree: &ProllyTree<S>,
         args: &ScanArgs,
     ) -> Result<Self> {
-        // ... synchronous implementation of new_for_scan ...
         let store = Arc::clone(&tree.store);
         let config = tree.config.clone();
-        let mut path = Vec::new();
-        let current_leaf_entry_idx = if args.reverse { usize::MAX } else { 0 };
+        let mut path: Vec<(Hash, Node, usize)> = Vec::new();
+        let mut current_leaf_entry_idx: usize = if args.reverse { usize::MAX } else { 0 };
 
         if tree.root_hash.is_none() {
             return Ok(Self { store, config, path, current_leaf_entry_idx });
@@ -628,20 +625,118 @@ impl<S: ChunkStore> Cursor<S> {
         let mut current_node_obj = tree.load_node_sync(&current_hash)?;
         path.push((current_hash, current_node_obj.clone(), usize::MAX));
 
-        if let Some(key_to_find) = args.start_bound.as_ref() {
+        let primary_bound_for_initial_descend: Option<&Key> = if !args.reverse {
+            args.start_bound.as_ref()
+        } else {
+            args.start_bound.as_ref()
+        };
+
+        if let Some(key_to_find_in_descent) = primary_bound_for_initial_descend {
+            while let Node::Internal { children, .. } = &current_node_obj {
+                if children.is_empty() { break; }
+                let child_idx_to_descend = children
+                    .binary_search_by_key(key_to_find_in_descent, |entry| entry.boundary_key.clone())
+                    .map_or_else(|idx| idx, |idx| idx)
+                    .min(children.len().saturating_sub(1));
+                
+                current_hash = children[child_idx_to_descend].child_hash;
+                current_node_obj = tree.load_node_sync(&current_hash)?;
+                path.push((current_hash, current_node_obj.clone(), child_idx_to_descend));
+            }
+            if let Node::Leaf { entries, .. } = &current_node_obj {
+                if !args.reverse {
+                    current_leaf_entry_idx = entries.binary_search_by_key(key_to_find_in_descent, |e| e.key.clone())
+                        .map_or_else(|idx| idx, |idx| idx);
+                } else {
+                    current_leaf_entry_idx = entries.binary_search_by_key(key_to_find_in_descent, |e| e.key.clone())
+                        .map_or_else(|idx| idx.saturating_sub(1), |idx| idx);
+                    if entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                    else if current_leaf_entry_idx >= entries.len() { current_leaf_entry_idx = entries.len().saturating_sub(1); }
+                }
+            }
+        } else {
             while let Node::Internal { children, .. } = &current_node_obj {
                  if children.is_empty() { break; }
-                 let child_idx = children.binary_search_by_key(key_to_find, |e| e.boundary_key.clone()).map_or_else(|i|i, |i|i).min(children.len() -1);
-                 current_hash = children[child_idx].child_hash;
+                 let child_idx_to_descend = if !args.reverse { 0 } else { children.len() - 1 };
+                 current_hash = children[child_idx_to_descend].child_hash;
                  current_node_obj = tree.load_node_sync(&current_hash)?;
-                 path.push((current_hash, current_node_obj.clone(), child_idx));
+                 path.push((current_hash, current_node_obj.clone(), child_idx_to_descend));
+            }
+            if args.reverse {
+                if let Node::Leaf{ entries, .. } = &current_node_obj {
+                    current_leaf_entry_idx = entries.len().saturating_sub(1);
+                    if entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                } else { current_leaf_entry_idx = usize::MAX; }
             }
         }
-        
-        // ... rest of the logic from async version, but with sync calls ...
-        // This part is complex and requires careful translation.
-        // For brevity, assuming the full translation is done here.
-        
+
+        let mut remaining_offset = args.offset;
+        while remaining_offset > 0 && !path.is_empty() {
+             let current_leaf_node_obj_clone = path.last().unwrap().1.clone();
+             if let Node::Leaf { entries, .. } = current_leaf_node_obj_clone {
+                 if !args.reverse {
+                     if current_leaf_entry_idx >= entries.len() {
+                         if !Self::advance_cursor_path_to_next_leaf_static_sync(&mut path, &store)? { remaining_offset = 0; break; }
+                         current_leaf_entry_idx = 0; continue;
+                     }
+                     let remaining_in_leaf = entries.len() - current_leaf_entry_idx;
+                     if remaining_offset < remaining_in_leaf as u64 {
+                         current_leaf_entry_idx += remaining_offset as usize; remaining_offset = 0;
+                     } else {
+                         remaining_offset -= remaining_in_leaf as u64; current_leaf_entry_idx = entries.len();
+                         if !Self::advance_cursor_path_to_next_leaf_static_sync(&mut path, &store)? { remaining_offset = 0; break; }
+                         current_leaf_entry_idx = 0;
+                     }
+                 } else { // Reverse
+                     if current_leaf_entry_idx == usize::MAX {
+                         if !Self::advance_cursor_path_to_prev_leaf_static_sync(&mut path, &store)? { remaining_offset = 0; break; }
+                         if let Some((_, new_leaf, _)) = path.last() {
+                            if let Node::Leaf{entries: new_entries, ..} = new_leaf {
+                                current_leaf_entry_idx = new_entries.len().saturating_sub(1);
+                                if new_entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                            }
+                         } else { break; }
+                         continue;
+                     }
+                     let available_to_move_back = current_leaf_entry_idx + 1;
+                     if remaining_offset < available_to_move_back as u64 {
+                         current_leaf_entry_idx -= remaining_offset as usize; remaining_offset = 0;
+                     } else {
+                         remaining_offset -= available_to_move_back as u64; current_leaf_entry_idx = usize::MAX;
+                         if !Self::advance_cursor_path_to_prev_leaf_static_sync(&mut path, &store)? { remaining_offset = 0; break; }
+                         if let Some((_, new_leaf, _)) = path.last() {
+                            if let Node::Leaf{entries: new_entries, ..} = new_leaf {
+                                current_leaf_entry_idx = new_entries.len().saturating_sub(1);
+                                if new_entries.is_empty() { current_leaf_entry_idx = usize::MAX; }
+                            }
+                         } else { break; }
+                     }
+                 }
+             } else { break; }
+        }
+
+        if remaining_offset > 0 {
+            current_leaf_entry_idx = if !args.reverse { path.last().map_or(0, |(_, n, _)| n.num_entries()) } else { usize::MAX };
+        }
+
+        if path.last().is_some() {
+            let leaf_node = &path.last().unwrap().1;
+            if let Node::Leaf { entries, .. } = leaf_node {
+                if !args.reverse {
+                    if let Some(sb_val) = &args.start_bound {
+                        if current_leaf_entry_idx < entries.len() && !args.start_inclusive && &entries[current_leaf_entry_idx].key == sb_val {
+                            current_leaf_entry_idx += 1;
+                        }
+                    }
+                } else {
+                    if let Some(sb_val) = &args.start_bound {
+                        if current_leaf_entry_idx != usize::MAX && current_leaf_entry_idx < entries.len() && !args.start_inclusive && &entries[current_leaf_entry_idx].key == sb_val {
+                            current_leaf_entry_idx = current_leaf_entry_idx.checked_sub(1).unwrap_or(usize::MAX);
+                        }
+                    }
+                }
+            }
+        }
         Ok(Self { store, config, path, current_leaf_entry_idx })
     }
 

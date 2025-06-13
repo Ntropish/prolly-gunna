@@ -1812,6 +1812,8 @@ describe("PTree Events (onChange)", () => {
 });
 // +++ New Test Suite for scanItemsSync +++
 
+// +++ New Test Suite for scanItemsSync +++
+
 interface TestItem {
   key: Uint8Array;
   value: Uint8Array;
@@ -1839,28 +1841,29 @@ function createTestItems(
   return items;
 }
 
-// This interface correctly describes the shape of the object returned by `scanItemsSync`,
-// which uses `undefined` for optional cursors, aligning with Rust's `Option<T>`.
-interface WasmScanPage {
-  readonly items: [Uint8Array, Uint8Array][];
-  readonly hasNextPage: boolean;
-  readonly hasPreviousPage: boolean;
-  readonly nextPageCursor: Uint8Array | undefined;
-  readonly previousPageCursor: Uint8Array | undefined;
-}
-
-// This is the shape our tests actually want to assert against, with processed items.
-type ProcessedScanPage = Omit<WasmScanPage, "items"> & { items: TestItem[] };
+// Define a new type for the page after processing.
+type ProcessedScanPage = {
+  items: TestItem[];
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  nextPageCursor: Uint8Array | undefined;
+  previousPageCursor: Uint8Array | undefined;
+};
 
 // Directly processes the ScanPage result from a sync call.
-// The parameter type is changed from IScanPage to the correct WasmScanPage shape.
-function processSyncScanPage(page: WasmScanPage): ProcessedScanPage {
+// This was corrected to explicitly access getters instead of using spread syntax.
+function processSyncScanPage(page: IScanPage): ProcessedScanPage {
   const processedItems: TestItem[] = page.items.map((pair) => ({
     key: pair[0],
     value: pair[1],
   }));
-  // This spread creates an object with the page's properties and then overwrites 'items'.
-  return { ...page, items: processedItems };
+  return {
+    items: processedItems,
+    hasNextPage: page.hasNextPage,
+    hasPreviousPage: page.hasPreviousPage,
+    nextPageCursor: page.nextPageCursor ?? undefined,
+    previousPageCursor: page.previousPageCursor ?? undefined,
+  };
 }
 
 describe("PTree Synchronous Scanning (scanItemsSync)", () => {
@@ -1876,7 +1879,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
 
   it("should retrieve all items with no options (full scan)", () => {
     const page = processSyncScanPage(
-      tree.scanItemsSync({ limit: testDataAll.length + 5 })
+      tree.scanItemsSync({ limit: testDataAll.length + 5 }) as IScanPage
     );
     expectKeyValueArrayEq(page.items, testDataAll, "Full sync scan mismatch");
     expect(page.hasNextPage).toBe(false);
@@ -1886,7 +1889,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
   it("should handle offset correctly", () => {
     const offset = 3;
     const page = processSyncScanPage(
-      tree.scanItemsSync({ offset, limit: testDataAll.length })
+      tree.scanItemsSync({ offset, limit: testDataAll.length }) as IScanPage
     );
     expectKeyValueArrayEq(
       page.items,
@@ -1899,7 +1902,9 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
 
   it("should handle limit correctly", () => {
     const limit = 4;
-    const page = processSyncScanPage(tree.scanItemsSync({ limit }));
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ limit }) as IScanPage
+    );
     expectKeyValueArrayEq(
       page.items,
       testDataAll.slice(0, limit),
@@ -1912,7 +1917,9 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
   it("should handle offset and limit combined", () => {
     const offset = 2;
     const limit = 5;
-    const page = processSyncScanPage(tree.scanItemsSync({ offset, limit }));
+    const page = processSyncScanPage(
+      tree.scanItemsSync({ offset, limit }) as IScanPage
+    );
     expectKeyValueArrayEq(
       page.items,
       testDataAll.slice(offset, offset + limit),
@@ -1929,7 +1936,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
       endBound: toU8("item_005"),
       endInclusive: false,
     };
-    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const page = processSyncScanPage(tree.scanItemsSync(options) as IScanPage);
     const expected = testDataAll.slice(2, 5); // item_002, item_003, item_004
     expectKeyValueArrayEq(
       page.items,
@@ -1947,7 +1954,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
       endInclusive: true,
       limit: 10,
     };
-    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const page = processSyncScanPage(tree.scanItemsSync(options) as IScanPage);
     const expected = testDataAll.slice(15, 19); // item_015 to item_018
     expectKeyValueArrayEq(
       page.items,
@@ -1960,7 +1967,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
   it("should handle reverse scan", () => {
     const limit = 3;
     const page = processSyncScanPage(
-      tree.scanItemsSync({ reverse: true, limit })
+      tree.scanItemsSync({ reverse: true, limit }) as IScanPage
     );
     const expected = [
       ...testDataAll.slice(testDataAll.length - limit),
@@ -1979,7 +1986,7 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
       reverse: true,
       limit: 10,
     };
-    const page = processSyncScanPage(tree.scanItemsSync(options));
+    const page = processSyncScanPage(tree.scanItemsSync(options) as IScanPage);
     const expectedSlice = testDataAll.slice(3, 7); // item_003 to item_006
     const expected = [...expectedSlice].reverse();
     expectKeyValueArrayEq(
@@ -1998,14 +2005,14 @@ describe("PTree Synchronous Scanning (scanItemsSync)", () => {
 
   it("should return empty page for scan on empty tree", () => {
     const emptyTree = new PTree();
-    const page = processSyncScanPage(emptyTree.scanItemsSync({}));
+    const page = processSyncScanPage(emptyTree.scanItemsSync({}) as IScanPage);
     expect(page.items.length).toBe(0);
     expect(page.hasNextPage).toBe(false);
   });
 
   it("should handle offset exceeding available items", () => {
     const page = processSyncScanPage(
-      tree.scanItemsSync({ offset: testDataAll.length + 5 })
+      tree.scanItemsSync({ offset: testDataAll.length + 5 }) as IScanPage
     );
     expect(page.items.length).toBe(0);
     expect(page.hasNextPage).toBe(false);
